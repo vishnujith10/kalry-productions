@@ -1,19 +1,20 @@
 import { Ionicons } from "@expo/vector-icons";
 import { GoogleGenerativeAI } from "@google/generative-ai";
 import { Audio } from "expo-av";
+import Constants from 'expo-constants';
 import * as FileSystem from "expo-file-system/legacy";
 import { LinearGradient } from "expo-linear-gradient";
 import React, { useEffect, useRef, useState } from "react";
 import {
-    ActivityIndicator,
-    Alert,
-    Animated,
-    PermissionsAndroid,
-    Platform,
-    StyleSheet,
-    Text,
-    TouchableOpacity,
-    View,
+  ActivityIndicator,
+  Alert,
+  Animated,
+  PermissionsAndroid,
+  Platform,
+  StyleSheet,
+  Text,
+  TouchableOpacity,
+  View,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import supabase from "../lib/supabase";
@@ -47,7 +48,20 @@ const VoiceCalorieScreen = ({ navigation, route }) => {
   const [audioLevels, setAudioLevels] = useState(
     Array.from({ length: 20 }, () => 0)
   );
-  const apiKey = process.env.EXPO_PUBLIC_GEMINI_API_KEY;
+  // Use environment variables directly (from eas.json in production)
+  const apiKey = process.env.EXPO_PUBLIC_GEMINI_API_KEY || Constants.expoConfig?.extra?.EXPO_PUBLIC_GEMINI_API_KEY || "AIzaSyAJ4Df1p8dHhI88h72aG5CHY5rBFEJBWPQ";
+  
+  // Debug logging
+  console.log('VoiceCalorieScreen - API Key:', apiKey ? 'Found' : 'Missing');
+  console.log('VoiceCalorieScreen - process.env:', process.env.EXPO_PUBLIC_GEMINI_API_KEY ? 'Found' : 'Missing');
+  console.log('VoiceCalorieScreen - Constants:', Constants.expoConfig?.extra?.EXPO_PUBLIC_GEMINI_API_KEY ? 'Found' : 'Missing');
+  
+  // Validate API key
+  if (!apiKey) {
+    console.error('VoiceCalorieScreen - No API key found!');
+    throw new Error('AI service configuration error. Please check your settings.');
+  }
+  
   const genAI = new GoogleGenerativeAI(apiKey);
 
   // Recording animation removed

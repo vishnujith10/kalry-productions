@@ -257,6 +257,8 @@ const HomeScreen = ({ navigation }) => {
     carbs: 0,
     fat: 0,
   });
+
+
   const [userName, setUserName] = useState(onboardingData?.name || "User");
   const [recentMeals, setRecentMeals] = useState(() => globalHomeCache.cachedData?.recentMeals || []);
   const [expandedMeal, setExpandedMeal] = useState(null);
@@ -579,15 +581,20 @@ const HomeScreen = ({ navigation }) => {
       const selectedIds = Array.from(selectedMeals);
       await Promise.all(selectedIds.map(id => deleteFoodLog(id)));
       
-      const newMeals = recentMeals.filter(meal => !selectedMeals.has(meal.id));
-      const newLogs = foodLogs.filter(meal => !selectedMeals.has(meal.id));
+      // Clear cache to force fresh data fetch
+      globalHomeCache.cachedData = null;
+      globalHomeCache.lastFetchTime = 0;
       
-      setRecentMeals(newMeals);
-      setFoodLogs(newLogs);
-      calculateTotals(newLogs);
+      // Also invalidate main dashboard cache to keep everything in sync
+      invalidateHomeScreenCache();
+      
+      // Refresh data from database
+      await fetchFoodLogs(selectedDate);
       
       setSelectedMeals(new Set());
       setIsSelectionMode(false);
+      
+      Alert.alert("Success", "Selected meals deleted successfully.");
     } catch (e) {
       Alert.alert("Error", "Failed to delete selected meals.");
     }

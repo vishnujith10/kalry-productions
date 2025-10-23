@@ -1,7 +1,7 @@
 import { Ionicons, MaterialCommunityIcons } from '@expo/vector-icons';
 import { useFocusEffect, useNavigation } from '@react-navigation/native';
 import React, { useContext, useEffect, useState } from 'react';
-import { Alert, Platform, ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import { Alert, BackHandler, Platform, ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { OnboardingContext } from '../context/OnboardingContext';
 import supabase from '../lib/supabase';
@@ -224,7 +224,30 @@ const MainDashboardScreen = ({ route }) => {
   const userName = onboardingData?.name || 'Aanya';
   const { stepsToday, distanceKm, calories: stepCalories, isPedometerAvailable } = useTodaySteps();
   const stepGoal = onboardingData?.step_goal || 10000;
-  
+
+  // Handle back button - double tap to exit
+  useEffect(() => {
+    let backButtonPressed = 0;
+    const backAction = () => {
+      backButtonPressed++;
+      if (backButtonPressed === 1) {
+        // First press - do nothing, just reset after 2 seconds
+        setTimeout(() => {
+          backButtonPressed = 0;
+        }, 2000);
+        return true; // Prevent default back action
+      } else if (backButtonPressed === 2) {
+        // Second press within 2 seconds - exit app
+        BackHandler.exitApp();
+        return true;
+      }
+      return true;
+    };
+
+    const backHandler = BackHandler.addEventListener("hardwareBackPress", backAction);
+    return () => backHandler.remove();
+  }, []);
+
   // Memoize expensive calculations (Instagram pattern)
   const percent = React.useMemo(() => 
     Math.round((stepsToday / stepGoal) * 100),

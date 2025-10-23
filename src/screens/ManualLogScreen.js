@@ -1,6 +1,7 @@
 import { Ionicons } from '@expo/vector-icons';
 import { GoogleGenerativeAI } from '@google/generative-ai';
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import Constants from 'expo-constants';
 import React, { useEffect, useRef, useState } from 'react';
 import { Alert, Animated, Modal, ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
@@ -32,7 +33,8 @@ const ManualLogScreen = ({ route, navigation }) => {
     { label: 'Bottle', value: 'bottle', icon: 'wine-outline' },
   ];
 
-  const apiKey = process.env.EXPO_PUBLIC_GEMINI_API_KEY;
+  // Use environment variables directly (from eas.json in production)
+  const apiKey = process.env.EXPO_PUBLIC_GEMINI_API_KEY || Constants.expoConfig?.extra?.EXPO_PUBLIC_GEMINI_API_KEY;
   const genAI = new GoogleGenerativeAI(apiKey);
 
   const handleTextToCalorie = async () => {

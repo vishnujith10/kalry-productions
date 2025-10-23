@@ -1,6 +1,7 @@
 import { Ionicons } from '@expo/vector-icons';
 import { GoogleGenerativeAI } from '@google/generative-ai';
 import { Audio } from 'expo-av';
+import Constants from 'expo-constants';
 import * as FileSystem from 'expo-file-system/legacy';
 import * as ImagePicker from 'expo-image-picker';
 import { LinearGradient } from 'expo-linear-gradient';
@@ -297,7 +298,8 @@ const VoiceLoggingModal = ({ visible, onClose, onLog, mealType }) => {
   const [isLoading, setIsLoading] = useState(false);
   const [nutritionData, setNutritionData] = useState(null);
   const [transcribedText, setTranscribedText] = useState('');
-  const apiKey = process.env.EXPO_PUBLIC_GEMINI_API_KEY;
+  // Use environment variables directly (from eas.json in production)
+  const apiKey = process.env.EXPO_PUBLIC_GEMINI_API_KEY || Constants.expoConfig?.extra?.EXPO_PUBLIC_GEMINI_API_KEY;
   const genAI = new GoogleGenerativeAI(apiKey);
 
   React.useEffect(() => {

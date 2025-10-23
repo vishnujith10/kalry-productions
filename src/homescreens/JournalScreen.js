@@ -8,6 +8,8 @@ import supabase from '../lib/supabase';
 
 const JournalScreen = () => {
   const navigation = useNavigation();
+
+
   const [selectedFilter, setSelectedFilter] = useState('All');
   const [loading, setLoading] = useState(true);
   const [journalData, setJournalData] = useState({

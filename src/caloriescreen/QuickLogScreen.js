@@ -1,6 +1,7 @@
 import { Ionicons } from "@expo/vector-icons";
 import { GoogleGenerativeAI } from "@google/generative-ai";
 import AsyncStorage from "@react-native-async-storage/async-storage";
+import Constants from 'expo-constants';
 import React, { useMemo, useState } from "react";
 import {
   Alert,
@@ -15,7 +16,21 @@ import {
 import { SafeAreaView } from 'react-native-safe-area-context';
 import supabase from "../lib/supabase";
 
-const apiKey = process.env.EXPO_PUBLIC_GEMINI_API_KEY;
+// Use environment variables directly (from eas.json in production)
+const apiKey = process.env.EXPO_PUBLIC_GEMINI_API_KEY || Constants.expoConfig?.extra?.EXPO_PUBLIC_GEMINI_API_KEY || "AIzaSyAJ4Df1p8dHhI88h72aG5CHY5rBFEJBWPQ";
+
+// Debug logging
+console.log('QuickLogScreen - API Key:', apiKey ? 'Found' : 'Missing');
+console.log('QuickLogScreen - process.env:', process.env.EXPO_PUBLIC_GEMINI_API_KEY ? 'Found' : 'Missing');
+console.log('QuickLogScreen - Constants:', Constants.expoConfig?.extra?.EXPO_PUBLIC_GEMINI_API_KEY ? 'Found' : 'Missing');
+console.log('QuickLogScreen - Full Constants:', Constants.expoConfig?.extra);
+
+// Validate API key
+if (!apiKey) {
+  console.error('QuickLogScreen - No API key found!');
+  throw new Error('AI service configuration error. Please check your settings.');
+}
+
 const genAI = new GoogleGenerativeAI(apiKey);
 
 // App theme colors (keep in sync with other screens)

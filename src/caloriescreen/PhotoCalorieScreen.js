@@ -1,5 +1,6 @@
 import { Ionicons } from '@expo/vector-icons';
 import { GoogleGenerativeAI } from '@google/generative-ai';
+import Constants from 'expo-constants';
 import * as FileSystem from 'expo-file-system/legacy';
 import React, { useEffect, useRef, useState } from 'react';
 import { ActivityIndicator, Alert, Image, ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native';
@@ -87,7 +88,20 @@ const PhotoCalorieScreen = ({ route, navigation }) => {
     { emoji: '🤗', label: 'Grateful' },
   ];
   
-  const apiKey = process.env.EXPO_PUBLIC_GEMINI_API_KEY;
+  // Use environment variables directly (from eas.json in production)
+  const apiKey = process.env.EXPO_PUBLIC_GEMINI_API_KEY || Constants.expoConfig?.extra?.EXPO_PUBLIC_GEMINI_API_KEY || "AIzaSyAJ4Df1p8dHhI88h72aG5CHY5rBFEJBWPQ";
+  
+  // Debug logging
+  console.log('PhotoCalorieScreen - API Key:', apiKey ? 'Found' : 'Missing');
+  console.log('PhotoCalorieScreen - process.env:', process.env.EXPO_PUBLIC_GEMINI_API_KEY ? 'Found' : 'Missing');
+  console.log('PhotoCalorieScreen - Constants:', Constants.expoConfig?.extra?.EXPO_PUBLIC_GEMINI_API_KEY ? 'Found' : 'Missing');
+  
+  // Validate API key
+  if (!apiKey) {
+    console.error('PhotoCalorieScreen - No API key found!');
+    throw new Error('AI service configuration error. Please check your settings.');
+  }
+  
   const genAI = new GoogleGenerativeAI(apiKey);
 
   useEffect(() => {
