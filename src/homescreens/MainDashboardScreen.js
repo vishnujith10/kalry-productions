@@ -1,7 +1,8 @@
 import { Ionicons, MaterialCommunityIcons } from '@expo/vector-icons';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useFocusEffect, useNavigation } from '@react-navigation/native';
 import React, { useContext, useEffect, useState } from 'react';
-import { Alert, BackHandler, Platform, ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import { Alert, BackHandler, Modal, Platform, ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { KalryAlgorithmManager } from '../algorithms/KalryAlgorithmManager';
 import { DailyCheckInModal } from '../components/DailyCheckInModal';
@@ -231,6 +232,12 @@ const MainDashboardScreen = ({ route }) => {
   const [algorithmManager, setAlgorithmManager] = useState(null);
   const [showCheckIn, setShowCheckIn] = useState(false);
   const [dailyPlan, setDailyPlan] = useState(null);
+  
+  // Daily check-in flow state
+  const [hasCheckedInToday, setHasCheckedInToday] = useState(false);
+  const [hasSeenModalToday, setHasSeenModalToday] = useState(false);
+  const [todaysCheckInData, setTodaysCheckInData] = useState(null);
+  const [showGoalsModal, setShowGoalsModal] = useState(false);
 
   // Handle back button - double tap to exit (ONLY on MainDashboardScreen)
   useEffect(() => {
@@ -680,6 +687,72 @@ const MainDashboardScreen = ({ route }) => {
     }
   }, [realUserId, onboardingData]);
 
+  // Daily check-in flow management
+  useEffect(() => {
+    checkDailyCheckInStatus();
+  }, []);
+
+  const checkDailyCheckInStatus = async () => {
+    try {
+      const today = new Date().toDateString();
+      const checkInData = await AsyncStorage.getItem(`dailyCheckIn_${today}`);
+      const seenModalData = await AsyncStorage.getItem(`seenModal_${today}`);
+      
+      if (checkInData) {
+        const parsedData = JSON.parse(checkInData);
+        setHasCheckedInToday(true);
+        setTodaysCheckInData(parsedData);
+      }
+      
+      if (seenModalData) {
+        setHasSeenModalToday(true);
+      }
+      
+      // Auto-open modal only if user hasn't checked in AND hasn't seen modal today
+      if (!checkInData && !seenModalData) {
+        setShowCheckIn(true);
+      }
+    } catch (error) {
+      console.error('Error checking daily check-in status:', error);
+    }
+  };
+
+  const saveCheckInData = async (data) => {
+    try {
+      const today = new Date().toDateString();
+      await AsyncStorage.setItem(`dailyCheckIn_${today}`, JSON.stringify(data));
+      setHasCheckedInToday(true);
+      setTodaysCheckInData(data);
+    } catch (error) {
+      console.error('Error saving check-in data:', error);
+    }
+  };
+
+  const markModalAsSeen = async () => {
+    try {
+      const today = new Date().toDateString();
+      await AsyncStorage.setItem(`seenModal_${today}`, 'true');
+      setHasSeenModalToday(true);
+    } catch (error) {
+      console.error('Error marking modal as seen:', error);
+    }
+  };
+
+  const handleCheckInClose = () => {
+    setShowCheckIn(false);
+    markModalAsSeen();
+  };
+
+  const handleCheckInButtonPress = () => {
+    if (hasCheckedInToday) {
+      // Show goals modal
+      setShowGoalsModal(true);
+    } else {
+      // Open check-in modal
+      setShowCheckIn(true);
+    }
+  };
+
   // Daily routine handler
   const startDailyRoutine = async (manager) => {
     try {
@@ -730,6 +803,15 @@ const MainDashboardScreen = ({ route }) => {
       
       if (result.success && result.dailyGoal) {
         setDailyPlan(result.dailyPlan);
+        
+        // Save check-in data
+        const checkInData = {
+          responses: processedResponses,
+          dailyGoal: result.dailyGoal,
+          dailyPlan: result.dailyPlan,
+          timestamp: new Date().toISOString()
+        };
+        await saveCheckInData(checkInData);
         
         Alert.alert(
           'Your Personalized Plan',
@@ -809,10 +891,97 @@ const MainDashboardScreen = ({ route }) => {
       {/* Daily Check-in Modal */}
       <DailyCheckInModal
         visible={showCheckIn}
-        onClose={() => setShowCheckIn(false)}
+        onClose={handleCheckInClose}
         onComplete={handleCheckInComplete}
         userProfile={onboardingData}
       />
+      
+      {/* Goals Modal */}
+      <Modal
+        visible={showGoalsModal}
+        transparent={true}
+        animationType="fade"
+        onRequestClose={() => setShowGoalsModal(false)}
+      >
+        <View style={styles.modalOverlay}>
+          <View style={styles.goalsModalContainer}>
+            <View style={styles.goalsModalHeader}>
+              <Text style={styles.goalsModalTitle}>Today&apos;s Personalized Plan</Text>
+              <TouchableOpacity
+                style={styles.goalsModalCloseButton}
+                onPress={() => setShowGoalsModal(false)}
+              >
+                <Ionicons name="close" size={24} color="#666" />
+              </TouchableOpacity>
+            </View>
+            
+            {todaysCheckInData && (
+              <ScrollView style={styles.goalsModalContent}>
+                {/* Calorie Goals */}
+                <View style={styles.goalSection}>
+                  <Text style={styles.goalSectionTitle}>🎯 Calorie Goals</Text>
+                  <View style={styles.calorieGoalCard}>
+                    <Text style={styles.calorieGoalRange}>
+                      {todaysCheckInData.dailyGoal.min} - {todaysCheckInData.dailyGoal.max} calories
+                    </Text>
+                    <Text style={styles.calorieGoalTarget}>
+                      Target: {todaysCheckInData.dailyGoal.target} calories
+                    </Text>
+                    <Text style={styles.calorieGoalMessage}>
+                      {todaysCheckInData.dailyGoal.displayMessage}
+                    </Text>
+                  </View>
+                </View>
+                
+                {/* Check-in Responses */}
+                <View style={styles.goalSection}>
+                  <Text style={styles.goalSectionTitle}>📊 Your Check-in</Text>
+                  <View style={styles.checkInSummaryCard}>
+                    <Text style={styles.checkInSummaryText}>
+                      Sleep: {todaysCheckInData.responses.sleep} hours
+                    </Text>
+                    <Text style={styles.checkInSummaryText}>
+                      Energy: {todaysCheckInData.responses.energy}
+                    </Text>
+                    <Text style={styles.checkInSummaryText}>
+                      Stress: {todaysCheckInData.responses.stress}
+                    </Text>
+                    <Text style={styles.checkInSummaryText}>
+                      Mood: {todaysCheckInData.responses.mood}/10
+                    </Text>
+                    {todaysCheckInData.responses.situation && todaysCheckInData.responses.situation.length > 0 && (
+                      <Text style={styles.checkInSummaryText}>
+                        Situation: {todaysCheckInData.responses.situation.join(', ')}
+                      </Text>
+                    )}
+                  </View>
+                </View>
+                
+                {/* Reasons */}
+                {todaysCheckInData.dailyGoal.reasons && todaysCheckInData.dailyGoal.reasons.length > 0 && (
+                  <View style={styles.goalSection}>
+                    <Text style={styles.goalSectionTitle}>💡 Insights</Text>
+                    {todaysCheckInData.dailyGoal.reasons.map((reason, index) => (
+                      <View key={index} style={styles.insightCard}>
+                        <Text style={styles.insightText}>
+                          {reason.factor}: {reason.message}
+                        </Text>
+                      </View>
+                    ))}
+                  </View>
+                )}
+              </ScrollView>
+            )}
+            
+            <TouchableOpacity
+              style={styles.goalsModalButton}
+              onPress={() => setShowGoalsModal(false)}
+            >
+              <Text style={styles.goalsModalButtonText}>Got it!</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+      </Modal>
       
       <ScrollView
         contentContainerStyle={{
@@ -829,10 +998,12 @@ const MainDashboardScreen = ({ route }) => {
           {/* Daily Check-in Button */}
           <TouchableOpacity
             style={styles.checkInButton}
-            onPress={() => setShowCheckIn(true)}
+            onPress={handleCheckInButtonPress}
           >
             <Ionicons name="checkmark-circle" size={20} color="#7B61FF" />
-            <Text style={styles.checkInButtonText}>Daily Check-in</Text>
+            <Text style={styles.checkInButtonText}>
+              {hasCheckedInToday ? 'View Check-in' : 'Daily Check-in'}
+            </Text>
           </TouchableOpacity>
           {ritualStreak !== null ? (
             <View style={styles.streakRowBlue}>
@@ -1938,6 +2109,118 @@ const styles = StyleSheet.create({
     fontFamily: 'Manrope-Regular',
     fontSize: 15,
     color: '#888',
+  },
+  
+  // Goals Modal Styles
+  modalOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0, 0, 0, 0.5)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    paddingHorizontal: 20,
+  },
+  goalsModalContainer: {
+    backgroundColor: '#FFFFFF',
+    borderRadius: 20,
+    width: '100%',
+    maxHeight: '80%',
+    ...SHADOW.lg,
+  },
+  goalsModalHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    paddingHorizontal: 20,
+    paddingTop: 20,
+    paddingBottom: 10,
+    borderBottomWidth: 1,
+    borderBottomColor: '#F0F0F0',
+  },
+  goalsModalTitle: {
+    fontSize: 20,
+    fontFamily: 'Lexend-Bold',
+    color: '#11181C',
+  },
+  goalsModalCloseButton: {
+    padding: 4,
+  },
+  goalsModalContent: {
+    maxHeight: 400,
+    paddingHorizontal: 20,
+  },
+  goalSection: {
+    marginVertical: 12,
+  },
+  goalSectionTitle: {
+    fontSize: 16,
+    fontFamily: 'Lexend-SemiBold',
+    color: '#11181C',
+    marginBottom: 8,
+  },
+  calorieGoalCard: {
+    backgroundColor: '#F8F9FF',
+    borderRadius: 12,
+    padding: 16,
+    borderWidth: 1,
+    borderColor: '#E0E7FF',
+  },
+  calorieGoalRange: {
+    fontSize: 18,
+    fontFamily: 'Lexend-Bold',
+    color: '#7B61FF',
+    marginBottom: 4,
+  },
+  calorieGoalTarget: {
+    fontSize: 14,
+    fontFamily: 'Manrope-Medium',
+    color: '#666',
+    marginBottom: 8,
+  },
+  calorieGoalMessage: {
+    fontSize: 14,
+    fontFamily: 'Manrope-Regular',
+    color: '#444',
+    lineHeight: 20,
+  },
+  checkInSummaryCard: {
+    backgroundColor: '#F0F9FF',
+    borderRadius: 12,
+    padding: 16,
+    borderWidth: 1,
+    borderColor: '#E0F2FE',
+  },
+  checkInSummaryText: {
+    fontSize: 14,
+    fontFamily: 'Manrope-Medium',
+    color: '#444',
+    marginBottom: 4,
+  },
+  insightCard: {
+    backgroundColor: '#FFF7ED',
+    borderRadius: 8,
+    padding: 12,
+    marginBottom: 8,
+    borderWidth: 1,
+    borderColor: '#FED7AA',
+  },
+  insightText: {
+    fontSize: 13,
+    fontFamily: 'Manrope-Regular',
+    color: '#444',
+    lineHeight: 18,
+  },
+  goalsModalButton: {
+    backgroundColor: '#7B61FF',
+    marginHorizontal: 20,
+    marginVertical: 20,
+    paddingVertical: 14,
+    borderRadius: 12,
+    alignItems: 'center',
+  },
+  goalsModalButtonText: {
+    fontSize: 16,
+    fontFamily: 'Lexend-SemiBold',
+    color: '#FFFFFF',
   },
 });
 

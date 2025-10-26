@@ -5,14 +5,14 @@
 import { Ionicons } from '@expo/vector-icons';
 import React, { useState } from 'react';
 import {
-    Modal,
-    ScrollView,
-    StyleSheet,
-    Text,
-    TouchableOpacity,
-    View
+  Modal,
+  ScrollView,
+  StyleSheet,
+  Text,
+  TouchableOpacity,
+  View
 } from 'react-native';
-import { ContextualPersonalizationEngine } from '../algorithms/ContextualPersonalizationEngine';
+import { SafeAreaView } from 'react-native-safe-area-context';
 
 export const DailyCheckInModal = ({ 
   visible, 
@@ -22,7 +22,6 @@ export const DailyCheckInModal = ({
 }) => {
   const [currentQuestionIndex, setCurrentQuestionIndex] = useState(0);
   const [responses, setResponses] = useState({});
-  const [personalizationEngine] = useState(() => new ContextualPersonalizationEngine(userProfile));
 
   const questions = [
     {
@@ -236,7 +235,7 @@ export const DailyCheckInModal = ({
       animationType="slide"
       presentationStyle="pageSheet"
     >
-      <View style={styles.container}>
+      <SafeAreaView style={styles.container} edges={['top', 'left', 'right']}>
         <View style={styles.header}>
           <TouchableOpacity onPress={onClose} style={styles.closeButton}>
             <Ionicons name="close" size={24} color="#666" />
@@ -295,7 +294,7 @@ export const DailyCheckInModal = ({
             )}
           </TouchableOpacity>
         </View>
-      </View>
+      </SafeAreaView>
     </Modal>
   );
 };
