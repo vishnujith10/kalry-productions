@@ -3,7 +3,7 @@ export default {
   expo: {
     name: "kalry",
     slug: "kalry",
-    owner: "vishnu242552",
+    owner: "amanmahfuz",
     version: "1.0.0",
     orientation: "portrait",
     userInterfaceStyle: "light",
@@ -16,7 +16,7 @@ export default {
       backgroundColor: "#ffffff"
     },
     assetBundlePatterns: [
-      "**/*"
+      "/*"
     ],
     ios: {
       supportsTablet: true,
@@ -48,7 +48,7 @@ export default {
     extra: {
       EXPO_PUBLIC_GEMINI_API_KEY: process.env.EXPO_PUBLIC_GEMINI_API_KEY,
       eas: {
-        projectId: "9e19ec07-3c95-45b3-99d6-2ef59917e324"
+         "projectId": "f96f8480-5291-458b-aa94-fe04125b0bdd"
       },
       supabaseUrl: process.env.EXPO_PUBLIC_SUPABASE_URL,
       supabaseAnonKey: process.env.EXPO_PUBLIC_SUPABASE_ANON_KEY,
@@ -90,4 +90,4 @@ export default {
       ]
     ]
   }
-}; 
+};

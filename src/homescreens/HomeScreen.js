@@ -3,24 +3,25 @@ import { useFocusEffect } from "@react-navigation/native";
 import * as ImagePicker from "expo-image-picker";
 import React, { useContext, useEffect, useState } from "react";
 import {
-  Alert,
-  Dimensions,
-  Image,
-  Platform,
-  ScrollView,
-  StyleSheet,
-  Text,
-  TouchableOpacity,
-  View
+    Alert,
+    Dimensions,
+    Image,
+    Platform,
+    ScrollView,
+    StyleSheet,
+    Text,
+    TouchableOpacity,
+    View
 } from "react-native";
 import { ProgressChart } from "react-native-chart-kit";
 import Animated, {
-  useAnimatedStyle,
-  useSharedValue,
-  withSpring,
-  withTiming
+    useAnimatedStyle,
+    useSharedValue,
+    withSpring,
+    withTiming
 } from 'react-native-reanimated';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import { CompassionateFeedbackEngine } from "../algorithms/CompassionateFeedbackEngine";
 import { OnboardingContext } from "../context/OnboardingContext";
 import supabase from "../lib/supabase";
 import { createFoodLog, deleteFoodLog, getFoodLogs } from "../utils/api";
@@ -355,11 +356,24 @@ const HomeScreen = ({ navigation }) => {
   useEffect(() => {
     setWeekDates(getCurrentWeekDates());
   }, []);
+
+  // Handle date changes - force data refresh when selectedDate changes
+  useEffect(() => {
+    if (user && user.id && selectedDate) {
+      // Clear cache and fetch fresh data for the new date
+      globalHomeCache.cachedData = null;
+      globalHomeCache.lastFetchTime = 0;
+      fetchFoodLogs(selectedDate);
+    }
+  }, [selectedDate, user?.id]);
   
-  // Use useFocusEffect with cache
+  // Use useFocusEffect with cache - Fixed to properly handle date changes
   useFocusEffect(
     React.useCallback(() => {
       if (user && user.id && selectedDate) {
+        // Clear cache when date changes to force fresh data fetch
+        globalHomeCache.cachedData = null;
+        globalHomeCache.lastFetchTime = 0;
         fetchFoodLogs(selectedDate);
       }
       // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -367,15 +381,21 @@ const HomeScreen = ({ navigation }) => {
   );
 
   const fetchFoodLogs = async (date) => {
+    // Create a unique cache key for each date
+    const dateKey = date.toISOString().split('T')[0]; // YYYY-MM-DD format
+    const cacheKey = `foodLogs_${dateKey}`;
+    
     const now = Date.now();
     const timeSinceLastFetch = now - globalHomeCache.lastFetchTime;
     const isStale = timeSinceLastFetch > globalHomeCache.STALE_TIME;
     const isFresh = timeSinceLastFetch < globalHomeCache.CACHE_DURATION;
     
+    // Check if we have cached data for this specific date
+    const cachedDataForDate = globalHomeCache.cachedData && globalHomeCache.cachedData.dateKey === dateKey;
+    
     // SWR Pattern: Stale-While-Revalidate (like Instagram)
-    if (globalHomeCache.cachedData && isFresh) {
-      // Data is fresh - use cache, no revalidation needed
-      // Always restore from cache when fresh (not just first time)
+    if (cachedDataForDate && isFresh) {
+      // Data is fresh for this date - use cache, no revalidation needed
       setFoodLogs(globalHomeCache.cachedData.foodLogs || []);
       setTotals(globalHomeCache.cachedData.totals || { calories: 0, protein: 0, carbs: 0, fat: 0, fiber: 0 });
       setRecentMeals(globalHomeCache.cachedData.recentMeals || []);
@@ -383,9 +403,8 @@ const HomeScreen = ({ navigation }) => {
       return; // Fresh cache - no fetch needed
     }
     
-    if (globalHomeCache.cachedData && isStale && !isFresh) {
+    if (cachedDataForDate && isStale && !isFresh) {
       // Data is stale but within cache duration - show stale, revalidate in background
-      // Always restore from cache (not just first time)
       setFoodLogs(globalHomeCache.cachedData.foodLogs || []);
       setTotals(globalHomeCache.cachedData.totals || { calories: 0, protein: 0, carbs: 0, fat: 0, fiber: 0 });
       setRecentMeals(globalHomeCache.cachedData.recentMeals || []);
@@ -442,11 +461,12 @@ const HomeScreen = ({ navigation }) => {
       }));
       setRecentMeals(withUrls);
       
-      // Cache the data
+      // Cache the data with date key
       globalHomeCache.cachedData = {
         foodLogs: filteredLogs,
         totals: newTotals,
         recentMeals: withUrls,
+        dateKey: dateKey, // Store the date key for cache validation
       };
       
       // Update cache timestamp
@@ -538,10 +558,33 @@ const HomeScreen = ({ navigation }) => {
       }
       await createFoodLog(logData);
       fetchFoodLogs(selectedDate);
+      
+      // Auto-save the food log for crash recovery
+      const syncEngine = new DataSyncEngine();
+      syncEngine.autoSave(logData, `food_log_${Date.now()}`);
+      
+      // Generate compassionate feedback
+      const feedbackEngine = new CompassionateFeedbackEngine();
+      const foodData = {
+        name: nutritionData.food_name,
+        calories: nutritionData.calories,
+        protein: nutritionData.protein || 0,
+        carbs: nutritionData.carbs || 0,
+        fat: nutritionData.fat || 0,
+        fiber: 0, // Could be added to nutrition data
+        micronutrients: {}, // Could be enhanced
+        category: 'meal' // Could be determined from food type
+      };
+      
+      const feedback = feedbackEngine.generateFoodFeedback(foodData);
+      
+      // Show compassionate feedback instead of generic success message
       Alert.alert(
-        "Success!",
-        `${nutritionData.food_name} logged for ${mealType}.`
+        "Food Logged! 🍽️",
+        feedback.message,
+        [{ text: "Great!", style: "default" }]
       );
+      
     } catch (error) {
       console.error("Error logging food:", error);
       Alert.alert("Error", "Failed to log food.");
@@ -690,7 +733,14 @@ const HomeScreen = ({ navigation }) => {
             return (
               <TouchableOpacity
                 key={i}
-                onPress={() => !isFutureDate && setSelectedDate(d.date)}
+                onPress={() => {
+                  if (!isFutureDate) {
+                    setSelectedDate(d.date);
+                    // Clear cache immediately when date changes
+                    globalHomeCache.cachedData = null;
+                    globalHomeCache.lastFetchTime = 0;
+                  }
+                }}
                 style={{ alignItems: "center", flex: 1 }}
                 disabled={isFutureDate}
               >

@@ -4,6 +4,7 @@ import React, { useCallback, useMemo, useState } from 'react';
 import { Dimensions, Platform, ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import { LineChart } from 'react-native-chart-kit';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import { AdaptiveGoalEngine } from '../algorithms/AdaptiveGoalEngine';
 import supabase from '../lib/supabase';
 import { getFoodLogs } from '../utils/api';
 
@@ -44,7 +45,12 @@ function isSameDay(date1, date2) {
 }
 
 function getRangeDates(range) {
+  // Use local timezone to avoid UTC conversion issues
   const now = new Date();
+  
+  // Debug: Log the current date
+  console.log('getRangeDates - Current date:', now.toISOString());
+  console.log('getRangeDates - Current year:', now.getFullYear());
   
   if (range.key === 'this_week') {
     // This week: Monday to Sunday of current week
@@ -57,13 +63,22 @@ function getRangeDates(range) {
     // Get Monday of this week
     const monday = new Date(today);
     monday.setDate(today.getDate() - daysSinceMonday);
+    monday.setHours(0, 0, 0, 0);
     
     // Get Sunday of this week
     const sunday = new Date(monday);
     sunday.setDate(monday.getDate() + 6);
+    sunday.setHours(23, 59, 59, 999);
     
-    const result = { start: startOfDay(monday), end: endOfDay(sunday) };
-    return result;
+    // Debug logging for this week calculation
+    console.log('getRangeDates - This Week Calculation:');
+    console.log('  Today:', today.toISOString());
+    console.log('  Current day of week:', currentDayOfWeek);
+    console.log('  Days since Monday:', daysSinceMonday);
+    console.log('  This week Monday:', monday.toISOString());
+    console.log('  This week Sunday:', sunday.toISOString());
+    
+    return { start: monday, end: sunday };
     
   } else if (range.key === 'last_week') {
     // Last week: Monday to Sunday of previous week
@@ -74,46 +89,76 @@ function getRangeDates(range) {
     // Get Monday of this week first
     const thisWeekMonday = new Date(today);
     thisWeekMonday.setDate(today.getDate() - daysSinceMonday);
+    thisWeekMonday.setHours(0, 0, 0, 0);
     
     // Go back 7 days to get last week's Monday
     const lastWeekMonday = new Date(thisWeekMonday);
     lastWeekMonday.setDate(thisWeekMonday.getDate() - 7);
+    lastWeekMonday.setHours(0, 0, 0, 0); // Ensure it's start of day
     
-    // Get last week's Sunday
-    const lastWeekSunday = new Date(lastWeekMonday);
-    lastWeekSunday.setDate(lastWeekMonday.getDate() + 6);
+    // Get last week's Sunday (this week's Monday - 1 day)
+    const lastWeekSunday = new Date(thisWeekMonday);
+    lastWeekSunday.setDate(thisWeekMonday.getDate() - 1);
+    lastWeekSunday.setHours(23, 59, 59, 999);
     
-    const result = { start: startOfDay(lastWeekMonday), end: endOfDay(lastWeekSunday) };
-    return result;
+    // Debug logging for last week calculation
+    console.log('getRangeDates - Last Week Calculation:');
+    console.log('  Today:', today.toISOString());
+    console.log('  Current day of week:', currentDayOfWeek);
+    console.log('  Days since Monday:', daysSinceMonday);
+    console.log('  This week Monday:', thisWeekMonday.toISOString());
+    console.log('  Last week Monday:', lastWeekMonday.toISOString());
+    console.log('  Last week Sunday:', lastWeekSunday.toISOString());
+    
+    return { start: lastWeekMonday, end: lastWeekSunday };
     
   } else if (range.key === 'one_month') {
     // 1 Month: Last 30 days including today
-    const end = endOfDay(now);
+    const end = new Date(now);
+    end.setHours(23, 59, 59, 999);
+    
     const start = new Date(now);
     start.setDate(now.getDate() - 29); // 30 days total including today
+    start.setHours(0, 0, 0, 0);
     
-    const result = { start: startOfDay(start), end };
-    return result;
+    return { start, end };
     
   } else if (range.key === 'ninety_days') {
     // 90 Days: Last 90 days including today
-    const end = endOfDay(now);
+    const end = new Date(now);
+    end.setHours(23, 59, 59, 999);
+    
     const start = new Date(now);
     start.setDate(now.getDate() - 89); // 90 days total including today
+    start.setHours(0, 0, 0, 0);
     
-    const result = { start: startOfDay(start), end };
-    return result;
+    return { start, end };
   }
   
   // Fallback
-  const end = endOfDay(now);
+  const end = new Date(now);
+  end.setHours(23, 59, 59, 999);
+  
   const start = new Date(now);
   start.setDate(now.getDate() - (range.days - 1));
-  return { start: startOfDay(start), end };
+  start.setHours(0, 0, 0, 0);
+  
+  return { start, end };
 }
 
-function groupByDay(logs, start, end) {
-  // Create array of days in the range
+function groupByDay(logs, start, end, rangeKey = null) {
+  console.log(`groupByDay called with rangeKey: ${rangeKey}`);
+  console.log(`groupByDay - logs length: ${logs ? logs.length : 'undefined'}`);
+  console.log(`groupByDay - start: ${start.toISOString()}`);
+  console.log(`groupByDay - end: ${end.toISOString()}`);
+  
+  // Safety check for logs
+  if (!Array.isArray(logs)) {
+    console.log('groupByDay: logs is not an array, returning empty days');
+    return [];
+  }
+  
+  // Create array of days in the range using LOCAL dates
   const days = [];
   const cursor = new Date(start);
   
@@ -129,13 +174,62 @@ function groupByDay(logs, start, end) {
   }
   
   // Process each log and add to appropriate day
-  logs.forEach((log) => {
+  console.log(`groupByDay - Processing ${logs.length} logs`);
+  logs.forEach((log, index) => {
+    // Safety check for log object
+    if (!log || !log.created_at) {
+      console.log('groupByDay: Invalid log object, skipping');
+      return;
+    }
+    
+    // Debug first few logs
+    if (index < 3) {
+      console.log(`groupByDay - Log ${index}:`, {
+        date: log.created_at,
+        food: log.food_name,
+        calories: log.calories
+      });
+    }
+    
     const logDate = new Date(log.created_at);
     
-    // Check if log is within our date range
-    if (logDate >= start && logDate <= end) {
-      // Find the matching day in our array
-      const matchingDayIndex = days.findIndex(day => isSameDay(day.date, logDate));
+    // Check if logDate is valid
+    if (isNaN(logDate.getTime())) {
+      console.log('groupByDay: Invalid log date, skipping');
+      return;
+    }
+    
+    // Convert to local date string for comparison (YYYY-MM-DD format)
+    // Use LOCAL time components, not UTC
+    const logDateStr = logDate.getFullYear() + '-' + 
+      String(logDate.getMonth() + 1).padStart(2, '0') + '-' + 
+      String(logDate.getDate()).padStart(2, '0');
+    
+    // Use LOCAL dates for range comparison
+    const startDateStr = start.getFullYear() + '-' + 
+      String(start.getMonth() + 1).padStart(2, '0') + '-' + 
+      String(start.getDate()).padStart(2, '0');
+    const endDateStr = end.getFullYear() + '-' + 
+      String(end.getMonth() + 1).padStart(2, '0') + '-' + 
+      String(end.getDate()).padStart(2, '0');
+    
+    // Debug logging for date comparison
+    if (rangeKey === 'last_week' || rangeKey === 'this_week') {
+      console.log(`groupByDay - ${rangeKey} Debug:`);
+      console.log(`  Log date: ${logDateStr}`);
+      console.log(`  Start date: ${startDateStr}`);
+      console.log(`  End date: ${endDateStr}`);
+      console.log(`  In range: ${logDateStr >= startDateStr && logDateStr <= endDateStr}`);
+    }
+    
+    if (logDateStr >= startDateStr && logDateStr <= endDateStr) {
+      // Find the matching day in our array using date string comparison with LOCAL dates
+      const matchingDayIndex = days.findIndex(day => {
+        const dayDateStr = day.date.getFullYear() + '-' + 
+          String(day.date.getMonth() + 1).padStart(2, '0') + '-' + 
+          String(day.date.getDate()).padStart(2, '0');
+        return dayDateStr === logDateStr;
+      });
       
       if (matchingDayIndex !== -1) {
         const calories = Number(log.calories || 0);
@@ -143,10 +237,26 @@ function groupByDay(logs, start, end) {
         const carbs = Number(log.carbs || 0);
         const fat = Number(log.fat || 0);
         
+        // Debug logging
+        if (rangeKey === 'last_week' || rangeKey === 'this_week') {
+          console.log(`groupByDay - Adding to day ${matchingDayIndex}: ${calories} calories`);
+        }
+        
         days[matchingDayIndex].calories += calories;
         days[matchingDayIndex].protein += protein;
         days[matchingDayIndex].carbs += carbs;
         days[matchingDayIndex].fat += fat;
+      } else {
+        // Debug logging - why no match found
+        if (rangeKey === 'last_week' || rangeKey === 'this_week') {
+          console.log(`groupByDay - No matching day found for log date: ${logDateStr}`);
+          console.log(`groupByDay - Available days:`, days.map(d => {
+            const dayDateStr = d.date.getFullYear() + '-' + 
+              String(d.date.getMonth() + 1).padStart(2, '0') + '-' + 
+              String(d.date.getDate()).padStart(2, '0');
+            return dayDateStr;
+          }));
+        }
       }
     }
   });
@@ -175,6 +285,10 @@ export default function ProgressScreen() {
   const [prevTotal, setPrevTotal] = useState(() => globalProgressCache.cachedData?.prevTotal || null);
   const [userGoal, setUserGoal] = useState(() => globalProgressCache.cachedData?.userGoal || null);
   const [logsCount, setLogsCount] = useState(() => globalProgressCache.cachedData?.logsCount || 0);
+  
+  // Adaptive goal system
+  const [adaptiveGoal, setAdaptiveGoal] = useState(null);
+  const [goalEngine, setGoalEngine] = useState(null);
 
   // Cache-first data fetching with useFocusEffect
   useFocusEffect(
@@ -188,8 +302,12 @@ export default function ProgressScreen() {
         const isCacheValid = globalProgressCache.timestamp && 
           (now - globalProgressCache.timestamp) < globalProgressCache.CACHE_DURATION;
 
-        // If cache is fresh, use it and skip fetch
-        if (isCacheValid && globalProgressCache.cachedData) {
+        // Check if cache is for the same range
+        const cacheRangeKey = globalProgressCache.cachedData?.rangeKey;
+        const isSameRange = cacheRangeKey === activeRange.key;
+
+        // If cache is fresh and for the same range, use it and skip fetch
+        if (isCacheValid && globalProgressCache.cachedData && isSameRange) {
           const cached = globalProgressCache.cachedData;
           setDaily(cached.daily || []);
           setTotals(cached.totals || { total: 0, average: 0, best: 0, worst: 0, bestDate: null, worstDate: null, streak: 0 });
@@ -219,37 +337,118 @@ export default function ProgressScreen() {
           // Get date range for the selected period
           const { start, end } = getRangeDates(activeRange);
           
-          // Fetch user's calorie goal
+          // Debug logging
+          console.log(`ProgressScreen - Range: ${activeRange.key}`);
+          console.log(`ProgressScreen - Start: ${start.toISOString()}`);
+          console.log(`ProgressScreen - End: ${end.toISOString()}`);
+          console.log(`ProgressScreen - Total logs fetched: ${logs ? logs.length : 0}`);
+          
+          // Debug: Log sample log dates
+          if (logs && logs.length > 0) {
+            console.log(`ProgressScreen - Sample log dates:`, logs.slice(0, 3).map(log => ({
+              date: log.created_at,
+              food: log.food_name,
+              calories: log.calories
+            })));
+            
+            // Debug: Log all log dates for last week
+            if (activeRange.key === 'last_week') {
+              console.log(`ProgressScreen - All log dates for Last Week:`, logs.map(log => ({
+                date: log.created_at,
+                food: log.food_name,
+                calories: log.calories
+              })));
+            }
+          }
+          
+          // Fetch user's profile for adaptive goal calculation
           const { data: profile } = await supabase.from('user_profile')
-            .select('calorie_goal')
+            .select('calorie_goal, weight, height, age, gender, activity_level, goal')
             .eq('id', userId)
             .single();
           const userGoalValue = profile?.calorie_goal ? Number(profile.calorie_goal) : null;
           
-          // Fetch all food logs
+          // Initialize adaptive goal engine if we have user data
+          if (profile && !goalEngine) {
+            const userProfile = {
+              weight: profile.weight || 70, // Default weight if not set
+              height: profile.height || 170, // Default height if not set
+              age: profile.age || 25, // Default age if not set
+              gender: profile.gender || 'male',
+              activityLevel: profile.activity_level || 'moderate',
+              goal: profile.goal || 'weightLoss',
+              medicalConditions: [], // Could be fetched from another table
+              medications: [], // Could be fetched from another table
+              isBreastfeeding: false, // Could be fetched from profile
+              menstrualCycle: null, // Could be fetched from profile
+              history: [], // Will be populated with recent food logs
+              weightHistory: [] // Could be fetched from weight tracking table
+            };
+            
+            const engine = new AdaptiveGoalEngine(userProfile);
+            setGoalEngine(engine);
+            
+            // Generate adaptive goal for today
+            const todayCheckIn = {
+              sleepHours: 7, // Default - could be from daily check-in
+              stressLevel: 'medium', // Default - could be from daily check-in
+              energyLevel: 'medium', // Default - could be from daily check-in
+              situation: null // Could be from daily check-in
+            };
+            
+            const adaptiveGoalData = engine.generateDailyGoal(todayCheckIn);
+            setAdaptiveGoal(adaptiveGoalData);
+          }
+          
+          // Fetch all food logs with proper error handling
           let logs = [];
           try {
-            logs = await getFoodLogs(userId);
+            const fetchedLogs = await getFoodLogs(userId);
+            logs = Array.isArray(fetchedLogs) ? fetchedLogs : [];
           } catch (error) {
-            const { data: supabaseLogs, error: supabaseError } = await supabase
-              .from('user_food_logs')
-              .select('*')
-              .eq('user_id', userId)
-              .order('created_at', { ascending: false });
-            
-            if (supabaseError) {
+            console.log('getFoodLogs failed, trying direct Supabase query:', error.message);
+            try {
+              const { data: supabaseLogs, error: supabaseError } = await supabase
+                .from('user_food_logs')
+                .select('*')
+                .eq('user_id', userId)
+                .order('created_at', { ascending: false });
+              
+              if (supabaseError) {
+                console.log('Supabase query error:', supabaseError.message);
+                logs = [];
+              } else {
+                logs = Array.isArray(supabaseLogs) ? supabaseLogs : [];
+              }
+            } catch (directError) {
+              console.log('Direct Supabase query failed:', directError.message);
               logs = [];
-            } else {
-              logs = supabaseLogs || [];
             }
           }
           
           // Group logs by day
-          const perDay = groupByDay(logs, start, end);
+          console.log(`ProgressScreen - About to call groupByDay with ${logs ? logs.length : 0} logs`);
+          console.log(`ProgressScreen - Range key: ${activeRange.key}`);
+          console.log(`ProgressScreen - Start date: ${start.toISOString()}`);
+          console.log(`ProgressScreen - End date: ${end.toISOString()}`);
+          console.log(`ProgressScreen - Start date string: ${start.getUTCFullYear()}-${String(start.getUTCMonth() + 1).padStart(2, '0')}-${String(start.getUTCDate()).padStart(2, '0')}`);
+          console.log(`ProgressScreen - End date string: ${end.getUTCFullYear()}-${String(end.getUTCMonth() + 1).padStart(2, '0')}-${String(end.getUTCDate()).padStart(2, '0')}`);
+          
+          const perDay = groupByDay(logs, start, end, activeRange.key);
+          
+          // Debug logging for grouped data
+          console.log(`ProgressScreen - Days in range: ${perDay ? perDay.length : 0}`);
+          console.log(`ProgressScreen - Days with data: ${perDay ? perDay.filter(d => d.calories > 0).length : 0}`);
+          console.log(`ProgressScreen - Total calories in range: ${perDay ? perDay.reduce((sum, d) => sum + d.calories, 0) : 0}`);
+          
+          // Log the actual perDay data for debugging
+          if (activeRange.key === 'last_week' || activeRange.key === 'this_week') {
+            console.log(`ProgressScreen - ${activeRange.key} perDay data:`, perDay);
+          }
         
           // Calculate totals for the active metric
           const metricKey = activeMetric;
-          const values = perDay.map(d => Number(d[metricKey] || 0));
+          const values = perDay ? perDay.map(d => Number(d[metricKey] || 0)) : [];
           const total = values.reduce((sum, val) => sum + val, 0);
           const daysWithData = values.filter(v => v > 0).length;
           const average = daysWithData > 0 ? total / daysWithData : 0;
@@ -270,11 +469,13 @@ export default function ProgressScreen() {
           
           // Calculate streak (consecutive days with logged data from the end)
           let streak = 0;
-          for (let i = perDay.length - 1; i >= 0; i--) {
-            if ((perDay[i][metricKey] || 0) > 0) {
-              streak++;
-            } else {
-              break;
+          if (perDay && perDay.length > 0) {
+            for (let i = perDay.length - 1; i >= 0; i--) {
+              if ((perDay[i][metricKey] || 0) > 0) {
+                streak++;
+              } else {
+                break;
+              }
             }
           }
           
@@ -282,16 +483,17 @@ export default function ProgressScreen() {
           
           // Calculate previous period for comparison
           const prevRange = calculatePreviousRange(activeRange, start);
-          const prevPerDay = groupByDay(logs, prevRange.start, prevRange.end);
-          const prevTotalValue = prevPerDay.reduce((sum, d) => sum + Number(d[metricKey] || 0), 0);
+          const prevPerDay = groupByDay(logs, prevRange.start, prevRange.end, activeRange.key);
+          const prevTotalValue = prevPerDay ? prevPerDay.reduce((sum, d) => sum + Number(d[metricKey] || 0), 0) : 0;
           
-          // Update cache
+          // Update cache with range key
           globalProgressCache.cachedData = {
             daily: perDay,
             totals: totalsData,
             prevTotal: prevTotalValue,
             userGoal: userGoalValue,
-            logsCount: logs.length,
+            logsCount: logs ? logs.length : 0,
+            rangeKey: activeRange.key, // Store the range key for cache validation
           };
           globalProgressCache.timestamp = Date.now();
           globalProgressCache.isStale = false;
@@ -303,7 +505,7 @@ export default function ProgressScreen() {
             totals: totalsData, 
             prevTotal: prevTotalValue, 
             userGoal: userGoalValue, 
-            logsCount: logs.length 
+            logsCount: logs ? logs.length : 0 
           });
           
           if (currentDataString !== newDataString) {
@@ -311,7 +513,7 @@ export default function ProgressScreen() {
             setTotals(totalsData);
             setPrevTotal(prevTotalValue);
             setUserGoal(userGoalValue);
-            setLogsCount(logs.length);
+            setLogsCount(logs ? logs.length : 0);
           }
           
         } catch (error) {
@@ -323,7 +525,7 @@ export default function ProgressScreen() {
       };
       
       load();
-    }, [activeRange, activeMetric, isFetching])
+    }, [activeRange, activeMetric, isFetching, daily, logsCount, prevTotal, totals, userGoal, goalEngine])
   );
 
   // Helper function to calculate previous period range
@@ -369,20 +571,24 @@ export default function ProgressScreen() {
     }
     
     // For longer ranges, show selected dates
-    const count = daily.length;
+    const count = daily ? daily.length : 0;
     const step = Math.max(1, Math.floor(count / 6));
-    return daily.map((d, i) => {
+    return daily ? daily.map((d, i) => {
       if (i % step === 0) {
         return `${d.date.getMonth() + 1}/${d.date.getDate()}`;
       }
       return '';
-    });
+    }) : [];
   }, [daily, activeRange]);
 
   const metricLabel = activeMetric === 'calories' ? 'cal' : 'g';
   
   // Data points for chart
   const dataPoints = useMemo(() => {
+    if (!daily || !Array.isArray(daily)) {
+      return [];
+    }
+    
     if (activeRange.key === 'this_week' || activeRange.key === 'last_week') {
       // Weekly views: show daily values
       return daily.map(d => Math.round(d[activeMetric] || 0));
@@ -407,14 +613,14 @@ export default function ProgressScreen() {
     if (activeRange.key === 'this_week') {
       // This Week: Show today's value for the selected metric
       const today = new Date();
-      const todayData = daily.find(d => isSameDay(d.date, today));
+      const todayData = daily ? daily.find(d => isSameDay(d.date, today)) : null;
       return Math.round(todayData?.[activeMetric] || 0);
     } else if (activeRange.key === 'last_week') {
       // Last Week: Show total
-      return Math.round(totals.total || 0);
+      return Math.round(totals?.total || 0);
     } else {
       // Month/90 days: Show total
-      return Math.round(totals.total || 0);
+      return Math.round(totals?.total || 0);
     }
   }, [activeRange, totals, daily, activeMetric]);
 
@@ -498,7 +704,23 @@ export default function ProgressScreen() {
                   data: dataPoints.length ? dataPoints : [0], 
                   color: (opacity = 1) => `rgba(123,97,255,${opacity})` 
                 },
-                ...(activeMetric === 'calories' && userGoal && 
+                ...(activeMetric === 'calories' && adaptiveGoal && 
+                    (activeRange.key === 'this_week' || activeRange.key === 'last_week') ? 
+                  [
+                    { 
+                      data: new Array(dataPoints.length || 7).fill(adaptiveGoal.target), 
+                      color: (opacity = 1) => `rgba(14,165,233,${opacity})` 
+                    },
+                    { 
+                      data: new Array(dataPoints.length || 7).fill(adaptiveGoal.min), 
+                      color: (opacity = 1) => `rgba(14,165,233,${opacity * 0.3})` 
+                    },
+                    { 
+                      data: new Array(dataPoints.length || 7).fill(adaptiveGoal.max), 
+                      color: (opacity = 1) => `rgba(14,165,233,${opacity * 0.3})` 
+                    }
+                  ] : 
+                  activeMetric === 'calories' && userGoal && 
                     (activeRange.key === 'this_week' || activeRange.key === 'last_week') ? 
                   [{ 
                     data: new Array(dataPoints.length || 7).fill(userGoal), 
@@ -596,7 +818,34 @@ export default function ProgressScreen() {
           </View>
         )}
 
-        {daily.length === 0 && !loading ? (
+        {/* Adaptive Goal Display */}
+        {adaptiveGoal && activeMetric === 'calories' && (
+          <View style={[styles.longCard, { marginTop: 16, backgroundColor: '#F0F9FF', borderColor: '#0EA5E9' }]}>
+            <Ionicons name="target" size={20} color="#0EA5E9" />
+            <View style={{ marginLeft: 8, flex: 1 }}>
+              <Text style={[styles.statTitle, { color: '#0EA5E9', fontWeight: '700' }]}>
+                Today&apos;s Adaptive Goal
+              </Text>
+              <Text style={[styles.statValue, { color: '#0369A1', fontSize: 18 }]}>
+                {adaptiveGoal.min}-{adaptiveGoal.max} calories
+              </Text>
+              <Text style={[styles.dataSummaryText, { color: '#0369A1', marginTop: 4 }]}>
+                {adaptiveGoal.displayMessage}
+              </Text>
+              {adaptiveGoal.reasons && adaptiveGoal.reasons.length > 0 && (
+                <View style={{ marginTop: 8 }}>
+                  {adaptiveGoal.reasons.slice(0, 2).map((reason, index) => (
+                    <Text key={index} style={[styles.dataSummaryText, { color: '#0369A1', fontSize: 12 }]}>
+                      • {reason.message || reason.explanation}
+                    </Text>
+                  ))}
+                </View>
+              )}
+            </View>
+          </View>
+        )}
+
+        {(!daily || daily.length === 0) && !loading ? (
           <View style={styles.noDataCard}>
             <Ionicons name="information-circle-outline" size={24} color="#7B61FF" />
             <Text style={styles.noDataText}>No food logs found for this period</Text>

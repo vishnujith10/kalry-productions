@@ -3,6 +3,8 @@ import { useFocusEffect, useNavigation } from '@react-navigation/native';
 import React, { useContext, useEffect, useState } from 'react';
 import { Alert, BackHandler, Platform, ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import { KalryAlgorithmManager } from '../algorithms/KalryAlgorithmManager';
+import { DailyCheckInModal } from '../components/DailyCheckInModal';
 import { OnboardingContext } from '../context/OnboardingContext';
 import supabase from '../lib/supabase';
 import { deleteFoodLog, getFoodLogs } from '../utils/api';
@@ -225,28 +227,38 @@ const MainDashboardScreen = ({ route }) => {
   const { stepsToday, distanceKm, calories: stepCalories, isPedometerAvailable } = useTodaySteps();
   const stepGoal = onboardingData?.step_goal || 10000;
 
-  // Handle back button - double tap to exit
+  // Algorithm integration state
+  const [algorithmManager, setAlgorithmManager] = useState(null);
+  const [showCheckIn, setShowCheckIn] = useState(false);
+  const [dailyPlan, setDailyPlan] = useState(null);
+
+  // Handle back button - double tap to exit (ONLY on MainDashboardScreen)
   useEffect(() => {
     let backButtonPressed = 0;
     const backAction = () => {
-      backButtonPressed++;
-      if (backButtonPressed === 1) {
-        // First press - do nothing, just reset after 2 seconds
-        setTimeout(() => {
-          backButtonPressed = 0;
-        }, 2000);
-        return true; // Prevent default back action
-      } else if (backButtonPressed === 2) {
-        // Second press within 2 seconds - exit app
-        BackHandler.exitApp();
+      // Only handle back button on MainDashboardScreen
+      if (navigation.getState().routes[navigation.getState().index].name === 'MainDashboard') {
+        backButtonPressed++;
+        if (backButtonPressed === 1) {
+          // First press - do nothing, just reset after 2 seconds
+          setTimeout(() => {
+            backButtonPressed = 0;
+          }, 2000);
+          return true; // Prevent default back action
+        } else if (backButtonPressed === 2) {
+          // Second press within 2 seconds - exit app
+          BackHandler.exitApp();
+          return true;
+        }
         return true;
       }
-      return true;
+      // For other screens, allow normal navigation
+      return false;
     };
 
     const backHandler = BackHandler.addEventListener("hardwareBackPress", backAction);
     return () => backHandler.remove();
-  }, []);
+  }, [navigation]);
 
   // Memoize expensive calculations (Instagram pattern)
   const percent = React.useMemo(() => 
@@ -640,6 +652,100 @@ const MainDashboardScreen = ({ route }) => {
     }, [realUserId])
   );
 
+  // Initialize algorithm manager
+  useEffect(() => {
+    if (realUserId && onboardingData) {
+      const userProfile = {
+        weight: onboardingData.weight || 70,
+        height: onboardingData.height || 170,
+        age: onboardingData.age || 25,
+        gender: onboardingData.gender || 'male',
+        activityLevel: onboardingData.activity_level || 'moderate',
+        goal: onboardingData.goal || 'weightLoss',
+        medicalConditions: [],
+        medications: [],
+        isBreastfeeding: false,
+        menstrualCycle: null,
+        history: [],
+        weightHistory: []
+      };
+      
+      console.log('Creating algorithm manager with userProfile:', userProfile);
+      
+      const manager = new KalryAlgorithmManager(userProfile);
+      setAlgorithmManager(manager);
+      
+      // Start daily routine
+      startDailyRoutine(manager);
+    }
+  }, [realUserId, onboardingData]);
+
+  // Daily routine handler
+  const startDailyRoutine = async (manager) => {
+    try {
+      const result = await manager.startDailyRoutine();
+      
+      if (result.type === 'recovery') {
+        Alert.alert(
+          'Recovered Data',
+          `Found ${result.data.length} unsaved entries. Would you like to restore them?`,
+          [
+            { text: 'Discard', style: 'cancel' },
+            { text: 'Restore', onPress: () => restoreRecoveredData(result.data) }
+          ]
+        );
+      } else if (result.type === 'checkin') {
+        setShowCheckIn(true);
+      }
+    } catch (error) {
+      console.error('Error starting daily routine:', error);
+    }
+  };
+
+  const restoreRecoveredData = async (data) => {
+    for (const item of data) {
+      console.log(`Restoring ${item.key} from ${item.ageMinutes} minutes ago`);
+    }
+  };
+
+  const handleCheckInComplete = async (responses) => {
+    try {
+      console.log('Received responses from DailyCheckInModal:', responses);
+      
+      // Ensure situation is properly formatted as an array
+      const processedResponses = {
+        ...responses,
+        situation: Array.isArray(responses.situation) 
+          ? responses.situation 
+          : responses.situation 
+            ? [responses.situation] 
+            : ['Normal day']
+      };
+      
+      console.log('Processing responses:', processedResponses);
+      
+      const result = await algorithmManager.processDailyCheckIn(processedResponses);
+      
+      console.log('Check-in result:', result);
+      
+      if (result.success && result.dailyGoal) {
+        setDailyPlan(result.dailyPlan);
+        
+        Alert.alert(
+          'Your Personalized Plan',
+          `Today's goal: ${result.dailyGoal.min}-${result.dailyGoal.max} calories\n\n${result.dailyGoal.displayMessage}`,
+          [{ text: 'Got it!', style: 'default' }]
+        );
+      } else {
+        console.error('Check-in failed or missing dailyGoal:', result);
+        Alert.alert('Error', 'Failed to generate personalized plan. Please try again.');
+      }
+    } catch (error) {
+      console.error('Error processing check-in:', error);
+      Alert.alert('Error', 'Failed to process check-in. Please try again.');
+    }
+  };
+
   // Create today's hydration record if it doesn't exist
   const createTodayHydrationRecord = async (userId, today) => {
     try {
@@ -700,6 +806,14 @@ const MainDashboardScreen = ({ route }) => {
 
   return (
     <SafeAreaView style={{ flex: 1, backgroundColor: COLORS.background }} edges={['top']}>
+      {/* Daily Check-in Modal */}
+      <DailyCheckInModal
+        visible={showCheckIn}
+        onClose={() => setShowCheckIn(false)}
+        onComplete={handleCheckInComplete}
+        userProfile={onboardingData}
+      />
+      
       <ScrollView
         contentContainerStyle={{
           ...styles.scrollContent,
@@ -709,11 +823,17 @@ const MainDashboardScreen = ({ route }) => {
       >
         {/* Greeting Card */}
         <View style={styles.greetingCard}>
-          <TouchableOpacity style={styles.logoutBtnAbsolute} onPress={async () => { await supabase.auth.signOut(); navigation.navigate('Welcome'); }}>
-            <Ionicons name="log-out" size={20} color={COLORS.primary} />
-          </TouchableOpacity>
           <Text style={styles.greetingCardTitle}>Good Morning, {userName}</Text>
           <Text style={styles.greetingCardVibe}>Today&apos;s vibe: {mood || 'Not tracked yet'} <Text style={{ fontSize: 16 }}>💙</Text></Text>
+          
+          {/* Daily Check-in Button */}
+          <TouchableOpacity
+            style={styles.checkInButton}
+            onPress={() => setShowCheckIn(true)}
+          >
+            <Ionicons name="checkmark-circle" size={20} color="#7B61FF" />
+            <Text style={styles.checkInButtonText}>Daily Check-in</Text>
+          </TouchableOpacity>
           {ritualStreak !== null ? (
             <View style={styles.streakRowBlue}>
               <Ionicons name="water" size={18} color="#3B82F6" style={{ marginRight: 6 }} />
@@ -1005,6 +1125,24 @@ const styles = StyleSheet.create({
     color: '#222B45',
     marginBottom: 2,
     textAlign: 'left',
+  },
+  checkInButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#F8F9FF',
+    paddingVertical: 8,
+    paddingHorizontal: 12,
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: '#7B61FF',
+    marginTop: 8,
+    alignSelf: 'flex-start',
+  },
+  checkInButtonText: {
+    fontSize: 14,
+    fontFamily: 'Lexend-Medium',
+    color: '#7B61FF',
+    marginLeft: 6,
   },
   greetingCardStreak: {
     color: '#3B82F6',
