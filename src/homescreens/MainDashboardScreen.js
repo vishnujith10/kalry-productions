@@ -238,6 +238,7 @@ const MainDashboardScreen = ({ route }) => {
   const [hasSeenModalToday, setHasSeenModalToday] = useState(false);
   const [todaysCheckInData, setTodaysCheckInData] = useState(null);
   const [showGoalsModal, setShowGoalsModal] = useState(false);
+  const [hasShownModalToday, setHasShownModalToday] = useState(false);
 
   // Handle back button - double tap to exit (ONLY on MainDashboardScreen)
   useEffect(() => {
@@ -687,9 +688,30 @@ const MainDashboardScreen = ({ route }) => {
     }
   }, [realUserId, onboardingData]);
 
-  // Daily check-in flow management
+  // Daily check-in flow management - check every time screen focuses
+  useFocusEffect(
+    React.useCallback(() => {
+      checkDailyCheckInStatus();
+    }, [])
+  );
+
+  // Reset daily state when date changes
   useEffect(() => {
-    checkDailyCheckInStatus();
+    const checkForNewDay = async () => {
+      const today = new Date().toDateString();
+      const lastCheckDate = await AsyncStorage.getItem('lastCheckDate');
+      
+      if (lastCheckDate !== today) {
+        // New day - reset all daily states
+        setHasCheckedInToday(false);
+        setHasSeenModalToday(false);
+        setHasShownModalToday(false);
+        setTodaysCheckInData(null);
+        await AsyncStorage.setItem('lastCheckDate', today);
+      }
+    };
+    
+    checkForNewDay();
   }, []);
 
   const checkDailyCheckInStatus = async () => {
@@ -697,6 +719,7 @@ const MainDashboardScreen = ({ route }) => {
       const today = new Date().toDateString();
       const checkInData = await AsyncStorage.getItem(`dailyCheckIn_${today}`);
       const seenModalData = await AsyncStorage.getItem(`seenModal_${today}`);
+      const shownModalData = await AsyncStorage.getItem(`shownModal_${today}`);
       
       if (checkInData) {
         const parsedData = JSON.parse(checkInData);
@@ -708,9 +731,16 @@ const MainDashboardScreen = ({ route }) => {
         setHasSeenModalToday(true);
       }
       
-      // Auto-open modal only if user hasn't checked in AND hasn't seen modal today
-      if (!checkInData && !seenModalData) {
+      if (shownModalData) {
+        setHasShownModalToday(true);
+      }
+      
+      // Auto-open modal only if user hasn't checked in AND hasn't seen modal today AND hasn't shown modal today
+      if (!checkInData && !seenModalData && !shownModalData) {
         setShowCheckIn(true);
+        setHasShownModalToday(true);
+        // Persist that we've shown the modal today
+        await AsyncStorage.setItem(`shownModal_${today}`, 'true');
       }
     } catch (error) {
       console.error('Error checking daily check-in status:', error);
@@ -738,8 +768,12 @@ const MainDashboardScreen = ({ route }) => {
     }
   };
 
-  const handleCheckInClose = () => {
+  const handleCheckInClose = async () => {
     setShowCheckIn(false);
+    setHasShownModalToday(true);
+    // Persist that we've shown the modal today
+    const today = new Date().toDateString();
+    await AsyncStorage.setItem(`shownModal_${today}`, 'true');
     markModalAsSeen();
   };
 
@@ -768,7 +802,14 @@ const MainDashboardScreen = ({ route }) => {
           ]
         );
       } else if (result.type === 'checkin') {
-        setShowCheckIn(true);
+        // Only show check-in modal if we haven't already shown it today
+        const today = new Date().toDateString();
+        const shownModalData = await AsyncStorage.getItem(`shownModal_${today}`);
+        const checkInData = await AsyncStorage.getItem(`dailyCheckIn_${today}`);
+        
+        if (!shownModalData && !checkInData) {
+          setShowCheckIn(true);
+        }
       }
     } catch (error) {
       console.error('Error starting daily routine:', error);
@@ -812,6 +853,10 @@ const MainDashboardScreen = ({ route }) => {
           timestamp: new Date().toISOString()
         };
         await saveCheckInData(checkInData);
+        setHasShownModalToday(true);
+        // Persist that we've shown the modal today
+        const today = new Date().toDateString();
+        await AsyncStorage.setItem(`shownModal_${today}`, 'true');
         
         Alert.alert(
           'Your Personalized Plan',
@@ -1175,11 +1220,11 @@ const MainDashboardScreen = ({ route }) => {
                   </View>
                 </View>
                 <Text style={{ fontFamily: 'Lexend-Bold', fontSize: 28, color: '#222', marginTop: 2 }}>{stepsToday.toLocaleString()}</Text>
-                {isPedometerAvailable !== 'true' && (
+                {/* {isPedometerAvailable !== 'true' && (
                   <Text style={{ fontFamily: 'Manrope-Regular', fontSize: 14, color: '#e74c3c', marginTop: 2 }}>
                     Step sensor not available on this device.
                   </Text>
-                )}
+                )} */}
               </TouchableOpacity>
             </View>
             {/* Sleep Card */}

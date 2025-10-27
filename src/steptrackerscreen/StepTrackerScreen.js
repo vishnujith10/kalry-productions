@@ -1,131 +1,81 @@
-import { FontAwesome5, Ionicons, MaterialCommunityIcons } from '@expo/vector-icons';
+// StepTrackerScreen.js - FIXED ICON NAME
+import { Ionicons, MaterialCommunityIcons } from '@expo/vector-icons';
 import React, { useEffect, useState } from 'react';
-import { Button, Modal, Platform, SafeAreaView, ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native';
+import { Alert, Linking, Modal, Platform, ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native';
+import { SafeAreaProvider, SafeAreaView } from 'react-native-safe-area-context';
 import supabase from '../lib/supabase';
 import { getDailyGoal, setDailyGoal } from '../utils/goalStorage';
 import useTodaySteps from '../utils/useTodaySteps';
-
-// Remove MOCK_STEPS, use real steps
-
-// PERCENT will be calculated from real steps
-const WEEKLY = [0.6, 0.67, 0.6, 0.5, 0.8, 1, 0.55];
-const STATS = [
-  { icon: 'time-outline', label: 'Active Time', value: '58', unit: 'min' },
-  { icon: 'walk', label: 'Distance', value: '5.6', unit: 'km' },
-  { icon: 'flame', label: 'Calories', value: '280', unit: 'kcal' },
-];
-const connectedApps = [
-  {
-    name: 'Apple Health',
-    icon: <FontAwesome5 name="apple" size={20} color="#222" />,
-    status: 'Connected',
-    statusColor: '#1abc9c',
-  },
-  {
-    name: 'Google Fit',
-    icon: <FontAwesome5 name="google" size={20} color="#222" />,
-    status: 'Connected',
-    statusColor: '#1abc9c',
-  },
-  {
-    name: 'Fit Con',
-    icon: <MaterialCommunityIcons name="fit-to-screen" size={20} color="#222" />,
-    status: 'Not Connected',
-    statusColor: '#888',
-  },
-];
-
 
 const StepTrackerScreen = ({ navigation }) => {
   const [userId, setUserId] = useState(null);
   const [goal, setGoal] = useState(10000);
   const [showGoalModal, setShowGoalModal] = useState(false);
   const [newGoal, setNewGoal] = useState(10000);
-  const { stepsToday, isPedometerAvailable, distanceKm, calories } = useTodaySteps();
-  const [weeklySteps, setWeeklySteps] = useState([0,0,0,0,0,0,0]);
+  
+  // Enhanced hook with diagnostics
+  const { 
+    stepsToday, 
+    isPedometerAvailable, 
+    distanceKm, 
+    calories, 
+    error, 
+    debugInfo,
+    diagnostics,
+    addTestSteps, 
+    resetSteps,
+    runFullDiagnostic
+  } = useTodaySteps();
 
-  // All useEffect, handlers, and logic here
+  // Get user ID
   useEffect(() => {
     const getUserId = async () => {
-      const { data: { session } } = await supabase.auth.getSession();
-      setUserId(session?.user?.id || null);
+      try {
+        const { data: { session } } = await supabase.auth.getSession();
+        setUserId(session?.user?.id || null);
+      } catch (error) {
+        console.error('Error getting user ID:', error);
+      }
     };
     getUserId();
   }, []);
 
+  // Load user's daily goal
   useEffect(() => {
     if (!userId) return;
-    getDailyGoal(userId).then(setGoal);
-  }, [userId]);
-
-  useEffect(() => {
-    if (!userId) return;
-    const today = new Date();
-    const yyyy = today.getFullYear();
-    const mm = String(today.getMonth() + 1).padStart(2, '0');
-    const dd = String(today.getDate()).padStart(2, '0');
-    const dateStr = `${yyyy}-${mm}-${dd}`;
-    fetch('https://wdkraevjbcguvwpxscqf.supabase.co/functions/v1/steps', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ user_id: userId, date: dateStr, steps: stepsToday }),
-    })
-      .then(res => res.json())
-      .then(data => {
-        console.log('Steps upserted to backend:', data);
-      })
-      .catch(err => {
-        console.log('Error upserting steps to backend:', err);
-      });
-  }, [stepsToday, userId]);
-
-  useEffect(() => {
-    if (!userId) return;
-    // Fetch last 7 days of steps
-    const fetchWeeklySteps = async () => {
+    
+    const loadGoal = async () => {
       try {
-        const res = await fetch(`https://wdkraevjbcguvwpxscqf.supabase.co/functions/v1/steps/${userId}`);
-        const data = await res.json();
-        // Build a map of date string to steps
-        const stepsMap = {};
-        data.forEach(log => { stepsMap[log.date] = log.steps; });
-        // Get last 7 days (Sun-Sat)
-        const week = [];
-        const today = new Date();
-        const sunday = new Date(today);
-        sunday.setDate(today.getDate() - today.getDay());
-        for (let i = 0; i < 7; i++) {
-          const d = new Date(sunday);
-          d.setDate(sunday.getDate() + i);
-          const dateStr = d.toISOString().slice(0,10);
-          week.push(stepsMap[dateStr] || 0);
+        const savedGoal = await getDailyGoal(userId);
+        if (savedGoal) {
+          setGoal(savedGoal);
         }
-        setWeeklySteps(week);
-      } catch (err) {
-        setWeeklySteps([0,0,0,0,0,0,0]);
+      } catch (error) {
+        console.error('Error loading goal:', error);
       }
     };
-    fetchWeeklySteps();
+    
+    loadGoal();
   }, [userId]);
 
-  useEffect(() => {
-    console.log('stepsToday:', stepsToday, 'isPedometerAvailable:', isPedometerAvailable);
-  }, [stepsToday, isPedometerAvailable]);
-
   const handleSaveGoal = async () => {
-    console.log('Save button pressed', { userId, newGoal });
     if (!userId) {
-      alert('No user ID!');
+      Alert.alert('Error', 'No user ID found');
       return;
     }
-    const success = await setDailyGoal(userId, newGoal);
-    console.log('setDailyGoal result:', success);
-    if (success) {
-      setGoal(newGoal);
-      setShowGoalModal(false);
-      alert('Goal updated!');
-    } else {
-      alert('Failed to save goal. Please try again.');
+    
+    try {
+      const success = await setDailyGoal(userId, newGoal);
+      if (success) {
+        setGoal(newGoal);
+        setShowGoalModal(false);
+        Alert.alert('Success', 'Goal updated successfully!');
+      } else {
+        Alert.alert('Error', 'Failed to save goal. Please try again.');
+      }
+    } catch (error) {
+      console.error('Error saving goal:', error);
+      Alert.alert('Error', 'Failed to save goal. Please try again.');
     }
   };
 
@@ -134,511 +84,680 @@ const StepTrackerScreen = ({ navigation }) => {
     setShowGoalModal(true);
   };
 
-  const percent = Math.round((stepsToday / goal) * 100);
+  const percent = Math.min(Math.round((stepsToday / goal) * 100), 100);
+
+  // Open device settings
+  const openDeviceSettings = () => {
+    if (Platform.OS === 'android') {
+      Linking.openSettings();
+    } else {
+      Alert.alert('Settings', 'Please go to Settings > Privacy & Security > Motion & Fitness and enable for this app');
+    }
+  };
 
   return (
-    <SafeAreaView style={{ flex: 1, backgroundColor: '#F8F7FC' }}>
-      {/* Custom Header */}
-      <View style={styles.customHeader}>
-        <TouchableOpacity 
-          onPress={() => navigation.goBack()}
-          style={styles.backButton}
-        >
-          <Ionicons name="chevron-back" size={28} color="#1F2937" />
-        </TouchableOpacity>
-        <Text style={styles.headerTitle}>Step Tracker</Text>
-        <View style={{ width: 40 }} />
-      </View>
-      
-      <ScrollView style={{ flex: 1, backgroundColor: '#F8F7FC' }} contentContainerStyle={{ padding: 20, paddingBottom: 40 }}>
-        <Text style={{ fontFamily: 'Manrope-Regular', fontSize: 16, color: '#444', marginBottom: 18 }}>Keep moving forward!</Text>
-      {/* Removed debug: Show if pedometer is available */}
-      {/* Removed warning about step sensor not available */}
-      {Platform.OS === 'android' && (
-        <Text style={{ fontFamily: 'Manrope-Regular', fontSize: 14, color: '#e67e22', marginBottom: 4 }}>
-          Step count only updates while app is open (Android limitation in Expo Go)
-        </Text>
-      )}
-      {/* Circular Progress */}
-      <View style={{ alignItems: 'center', marginBottom: 10 }}>
-        <View style={styles.circleOuter}>
-          <View style={styles.circleInner}>
-            <MaterialCommunityIcons name="walk" size={32} color="#A084E8" style={{ marginBottom: 2 }} />
-            <Text style={{ fontFamily: 'Lexend-Bold', fontSize: 32, color: '#222' }}>{stepsToday.toLocaleString()}</Text>
-            <Text style={{ fontFamily: 'Lexend-Regular', fontSize: 16, color: '#888' }}>/ {goal.toLocaleString()} steps</Text>
-          </View>
-          <View style={[styles.progressArc, { transform: [{ rotate: `${(percent / 100) * 360 - 90}deg` }] }]} />
+    <SafeAreaProvider>
+      <SafeAreaView style={styles.container} edges={['top']}>
+        {/* Header - FIXED ICON NAME */}
+        <View style={styles.header}>
+          <TouchableOpacity onPress={() => navigation.goBack()}>
+            <Ionicons name="chevron-back" size={24} color="#1F2937" />
+          </TouchableOpacity>
+          <Text style={styles.headerTitle}>Step Counter Diagnostic</Text>
+          <TouchableOpacity onPress={runFullDiagnostic}>
+            <MaterialCommunityIcons name="stethoscope" size={24} color="#7B61FF" />
+          </TouchableOpacity>
         </View>
-        <Text style={{ fontFamily: 'Manrope-Regular', fontSize: 16, color: '#7C3AED', marginTop: 10 }}>{percent}% of daily goal</Text>
-        <TouchableOpacity style={styles.syncBtn}><Text style={styles.syncBtnText}>Sync Steps</Text></TouchableOpacity>
-      </View>
 
-      {/* Stat Cards Row - minimal design */}
-      <View style={{ flexDirection: 'row', justifyContent: 'space-between', marginBottom: 18, marginTop: 15, }}>
-        {/* Calories Burnt Card */}
-        <View style={{ flex: 1, backgroundColor: '#fff', borderRadius: 16, borderWidth: 1, borderColor: '#E5E7EB', padding: 18, marginRight: 8, alignItems: 'flex-start' }}>
-          <View style={{ flexDirection: 'row', width: '100%', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 8 }}>
-            <View>
-              <Text style={{ fontFamily: 'Manrope-Regular', fontSize: 16, color: '#222' }}>Calories</Text>
-              <Text style={{ fontFamily: 'Manrope-Regular', fontSize: 16, color: '#222' }}>Burnt</Text>
-            </View>
-            <Ionicons name="flame-outline" size={20} color="#2E5C4D" />
-          </View>
-          <View style={{ flexDirection: 'row', alignItems: 'flex-end' }}>
-            <Text style={{ fontFamily: 'Lexend-Bold', fontSize: 32, color: '#222', lineHeight: 36 }}>{calories.toFixed(0)}</Text>
-            <Text style={{ fontFamily: 'Manrope-Regular', fontSize: 18, color: '#2E5C4D', marginLeft: 4, marginBottom: 2 }}>kCal</Text>
-          </View>
-        </View>
-        {/* Distance Covered Card */}
-        <View style={{ flex: 1, backgroundColor: '#fff', borderRadius: 16, borderWidth: 1, borderColor: '#E5E7EB', padding: 18, marginLeft: 8, alignItems: 'flex-start' }}>
-          <View style={{ flexDirection: 'row', width: '100%', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 8 }}>
-            <View>
-              <Text style={{ fontFamily: 'Manrope-Regular', fontSize: 16, color: '#222' }}>Distance</Text>
-              <Text style={{ fontFamily: 'Manrope-Regular', fontSize: 16, color: '#222' }}>Covered</Text>
-            </View>
-            <Ionicons name="walk" size={20} color="#2E5C4D" />
-          </View>
-          <View style={{ flexDirection: 'row', alignItems: 'flex-end' }}>
-            <Text style={{ fontFamily: 'Lexend-Bold', fontSize: 32, color: '#222', lineHeight: 36 }}>{distanceKm.toFixed(2)}</Text>
-            <Text style={{ fontFamily: 'Manrope-Regular', fontSize: 18, color: '#2E5C4D', marginLeft: 4, marginBottom: 2 }}>KM</Text>
-          </View>
-        </View>
-      </View>
-      {/* Daily Goal */}
-      <View style={{ flexDirection: 'row', alignItems: 'center', marginTop: 18, marginBottom: 8 }}>
-        <TouchableOpacity
-          style={{
-            backgroundColor: '#fff',
-            borderRadius: 16,
-            padding: 16,
-            shadowColor: '#181A20',
-            shadowOffset: { width: 0, height: 2 },
-            shadowOpacity: 0.08,
-            shadowRadius: 6,
-            elevation: 2,
-            flex: 1,
-            marginRight: 10,
-            justifyContent: 'center',
-          }}
-          onPress={openGoalModal}
-          activeOpacity={0.9}
-        >
-          <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
-            <View>
-              <Text style={{ fontFamily: 'Manrope-Regular', fontSize: 14, color: '#888' }}>Your daily goal</Text>
-              <Text style={{ fontFamily: 'Lexend-Bold', fontSize: 20, color: '#7C3AED', marginTop: 2 }}>
-                {goal.toLocaleString()} steps
-              </Text>
+        <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={styles.scrollContent}>
+          
+          {/* SIMPLIFIED DIAGNOSTIC PANEL */}
+          <View style={styles.diagnosticCard}>
+            <Text style={styles.diagnosticTitle}>🔍 Step Counter Diagnostics</Text>
+            
+            <View style={styles.diagnosticGrid}>
+              <View style={styles.diagnosticItem}>
+                <Text style={styles.diagnosticLabel}>Platform</Text>
+                <Text style={styles.diagnosticValue}>{Platform.OS}</Text>
+              </View>
+              
+              <View style={styles.diagnosticItem}>
+                <Text style={styles.diagnosticLabel}>Pedometer Support</Text>
+                <Text style={[styles.diagnosticValue, {color: diagnostics.pedometerSupported ? '#22C55E' : '#DC2626'}]}>
+                  {diagnostics.pedometerSupported ? '✅ Yes' : '❌ No'}
+                </Text>
+              </View>
+              
+              <View style={styles.diagnosticItem}>
+                <Text style={styles.diagnosticLabel}>Permissions</Text>
+                <Text style={[styles.diagnosticValue, {color: diagnostics.permissionsGranted ? '#22C55E' : '#DC2626'}]}>
+                  {diagnostics.permissionsGranted ? '✅ Granted' : '❌ Denied'}
+                </Text>
+              </View>
+              
+              <View style={styles.diagnosticItem}>
+                <Text style={styles.diagnosticLabel}>Sensor Active</Text>
+                <Text style={[styles.diagnosticValue, {color: diagnostics.sensorActive ? '#22C55E' : '#F59E0B'}]}>
+                  {diagnostics.sensorActive ? '🟢 Active' : '🟡 Inactive'}
+                </Text>
+              </View>
+              
+              <View style={styles.diagnosticItem}>
+                <Text style={styles.diagnosticLabel}>Total Events</Text>
+                <Text style={[styles.diagnosticValue, {color: diagnostics.totalEvents > 0 ? '#22C55E' : '#DC2626'}]}>
+                  {diagnostics.totalEvents}
+                </Text>
+              </View>
+              
+              <View style={styles.diagnosticItem}>
+                <Text style={styles.diagnosticLabel}>Last Event</Text>
+                <Text style={styles.diagnosticValue}>{diagnostics.lastEventTime || 'None'}</Text>
+              </View>
             </View>
 
-            <TouchableOpacity onPress={openGoalModal} style={{
-              backgroundColor: '#F4EBFF',
-              borderRadius: 10,
-              padding: 8,
-            }}>
-              <MaterialCommunityIcons name="pencil" size={18} color="#7C3AED" />
+            <Text style={styles.statusText}>Status: {debugInfo}</Text>
+            
+            {error && (
+              <Text style={styles.errorText}>Error: {error}</Text>
+            )}
+          </View>
+
+          {/* STEP COUNTER DISPLAY */}
+          <View style={styles.overviewCard}>
+            <View style={styles.progressSection}>
+              <View style={styles.circularProgress}>
+                <View style={styles.progressRing}>
+                  <View 
+                    style={[
+                      styles.progressArc, 
+                      { 
+                        transform: [{ rotate: `${-90 + (percent / 100) * 270}deg` }],
+                        opacity: percent > 0 ? 1 : 0 
+                      }
+                    ]} 
+                  />
+                </View>
+                <View style={styles.progressContent}>
+                  <Text style={styles.stepsNumber}>
+                    {stepsToday.toLocaleString()}
+                  </Text>
+                  <Text style={styles.stepsLabel}>steps</Text>
+                </View>
+              </View>
+              
+              <View style={styles.overviewText}>
+                <Text style={styles.overviewTitle}>Today's Steps</Text>
+                <Text style={styles.progressText}>
+                  Progress: {percent}% of goal
+                </Text>
+                <View style={styles.progressBar}>
+                  <View style={[styles.progressFill, { width: `${percent}%` }]} />
+                </View>
+                
+                <Text style={styles.liveStatus}>
+                  📡 {debugInfo}
+                </Text>
+              </View>
+            </View>
+
+            <View style={styles.quickStats}>
+              <View style={styles.statItem}>
+                <Text style={styles.statValue}>{distanceKm.toFixed(2)} km</Text>
+                <Text style={styles.statLabel}>Distance</Text>
+              </View>
+              <View style={styles.statItem}>
+                <Text style={styles.statValue}>{calories.toFixed(0)} kcal</Text>
+                <Text style={styles.statLabel}>Calories</Text>
+              </View>
+              <View style={styles.statItem}>
+                <Text style={styles.statValue}>{goal.toLocaleString()}</Text>
+                <Text style={styles.statLabel}>Goal</Text>
+              </View>
+            </View>
+          </View>
+
+          {/* TESTING & TROUBLESHOOTING */}
+          <View style={styles.testingCard}>
+            <Text style={styles.testingTitle}>🧪 Testing & Troubleshooting</Text>
+            
+            <View style={styles.testingButtons}>
+              <TouchableOpacity 
+                style={styles.testButton} 
+                onPress={() => addTestSteps(1)}
+              >
+                <Text style={styles.testButtonText}>+1</Text>
+              </TouchableOpacity>
+              <TouchableOpacity 
+                style={styles.testButton} 
+                onPress={() => addTestSteps(10)}
+              >
+                <Text style={styles.testButtonText}>+10</Text>
+              </TouchableOpacity>
+              <TouchableOpacity 
+                style={styles.testButton} 
+                onPress={() => addTestSteps(100)}
+              >
+                <Text style={styles.testButtonText}>+100</Text>
+              </TouchableOpacity>
+              <TouchableOpacity 
+                style={[styles.testButton, {backgroundColor: '#DC2626'}]} 
+                onPress={resetSteps}
+              >
+                <Text style={styles.testButtonText}>Reset</Text>
+              </TouchableOpacity>
+            </View>
+
+            <View style={styles.troubleshootingSection}>
+              <Text style={styles.troubleshootingTitle}>📋 Walking Test Instructions:</Text>
+              <Text style={styles.troubleshootingText}>1. Keep this app open and screen on</Text>
+              <Text style={styles.troubleshootingText}>2. Hold phone naturally in your hand</Text>
+              <Text style={styles.troubleshootingText}>3. Walk continuously for 30+ steps</Text>
+              <Text style={styles.troubleshootingText}>4. Walk at normal pace (not too slow/fast)</Text>
+              <Text style={styles.troubleshootingText}>5. Check console for "🎉 VALID STEP DETECTED"</Text>
+              <Text style={styles.troubleshootingText}>6. Watch "Total Events" counter above</Text>
+
+              {!diagnostics.pedometerSupported && (
+                <TouchableOpacity style={styles.settingsButton} onPress={openDeviceSettings}>
+                  <Text style={styles.settingsButtonText}>📱 Open Device Settings</Text>
+                </TouchableOpacity>
+              )}
+
+              {diagnostics.totalEvents === 0 && diagnostics.pedometerSupported && (
+                <View style={styles.warningBox}>
+                  <Text style={styles.warningText}>
+                    ⚠️ No sensor events detected. Try:
+                    {'\n'}• Restarting the app
+                    {'\n'}• Checking device settings
+                    {'\n'}• Walking with phone in different positions
+                    {'\n'}• Use test buttons to verify UI works
+                  </Text>
+                </View>
+              )}
+
+              {diagnostics.totalEvents > 0 && stepsToday === 0 && (
+                <View style={styles.infoBox}>
+                  <Text style={styles.infoText}>
+                    ℹ️ Sensor is working (events: {diagnostics.totalEvents}) but steps are filtered.
+                    {'\n'}This means the sensor detects movement but it's not qualifying as "steps".
+                    {'\n'}Try walking more consistently or use test buttons.
+                  </Text>
+                </View>
+              )}
+            </View>
+          </View>
+
+          {/* GOAL SETTING */}
+          <View style={styles.goalCard}>
+            <Text style={styles.cardTitle}>Set Your Daily Goal</Text>
+            <Text style={styles.goalCurrentText}>Current Goal: {goal.toLocaleString()} steps</Text>
+            
+            <TouchableOpacity style={styles.setGoalButton} onPress={openGoalModal}>
+              <Text style={styles.setGoalButtonText}>Set New Goal</Text>
             </TouchableOpacity>
           </View>
-        </TouchableOpacity>
-      </View>
 
-      <Modal visible={showGoalModal} transparent animationType="slide">
-        <View style={{
-          flex: 1,
-          justifyContent: 'center',
-          alignItems: 'center',
-          backgroundColor: 'rgba(0,0,0,0.25)',
-          padding: 24,
-        }}>
-          <View style={{
-            backgroundColor: '#fff',
-            borderRadius: 20,
-            padding: 24,
-            width: '100%',
-            maxWidth: 340,
-          }}>
-            <Text style={{
-              fontFamily: 'Lexend-Bold',
-              fontSize: 18,
-              marginBottom: 16,
-              color: '#222'
-            }}>Set Daily Step Goal</Text>
+        </ScrollView>
 
-            <View style={{ flexDirection: 'row', justifyContent: 'space-between', marginBottom: 12 }}>
-              {[5000, 7500, 10000].map(opt => (
-                <TouchableOpacity
-                  key={opt}
-                  onPress={() => setNewGoal(opt)}
-                  style={{
-                    backgroundColor: newGoal === opt ? '#7C3AED' : '#F4F4F5',
-                    borderRadius: 12,
-                    paddingVertical: 10,
-                    paddingHorizontal: 16,
-                  }}
-                >
-                  <Text style={{
-                    fontFamily: 'Lexend-SemiBold',
-                    fontSize: 14,
-                    color: newGoal === opt ? '#fff' : '#333'
-                  }}>
-                    {opt.toLocaleString()}
-                  </Text>
-                </TouchableOpacity>
-              ))}
-            </View>
-
-            <TextInput
-              style={{ borderWidth: 1, borderColor: '#E5E7EB', borderRadius: 8, padding: 8, marginTop: 12, fontSize: 16 }}
-              keyboardType="numeric"
-              value={String(newGoal)}
-              onChangeText={text => setNewGoal(Number(text.replace(/[^0-9]/g, '')))}
-              placeholder="Custom goal"
-            />
-            <View style={{ flexDirection: 'row', justifyContent: 'flex-end', marginTop: 16 }}>
-              <Button title="Cancel" onPress={() => setShowGoalModal(false)} />
-              <View style={{ width: 12 }} />
-              <Button title="Save" onPress={handleSaveGoal} />
-            </View>
-          </View>
-        </View>
-      </Modal>
-
-      <View style={styles.progressCard}>
-        {/* Header */}
-        <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 16 }}>
-          <Text style={{ fontFamily: 'Lexend-Bold', fontSize: 16, color: '#222', flex: 1 }}>
-            Weekly Progress
-          </Text>
-          <TouchableOpacity style={styles.weekBtn}>
-            <Text style={styles.weekBtnText}>Week</Text>
-          </TouchableOpacity>
-          <TouchableOpacity style={styles.monthBtn}>
-            <Text style={styles.monthBtnText}>Month</Text>
-          </TouchableOpacity>
-        </View>
-
-        {/* Graph Layout */}
-        <View style={{ flexDirection: 'row', alignItems: 'flex-end', height: 160 }}>
-          {/* Y-Axis Step Levels */}
-          <View style={{ justifyContent: 'space-between', height: '100%', marginRight: 10 }}>
-            {[10000, 8000, 6000, 4000, 2000, 0].map((val) => (
-              <Text
-                key={val}
-                style={{
-                  fontFamily: 'Manrope-Regular',
-                  fontSize: 12,
-                  color: '#aaa',
-                }}
-              >
-                {val / 1000}k
-              </Text>
-            ))}
-          </View>
-
-          {/* Bars (bottom-up growth) */}
-          <View
-            style={{
-              flexDirection: 'row',
-              flex: 1,
-              justifyContent: 'space-between',
-              alignItems: 'flex-end',
-            }}
-          >
-            {['M', 'T', 'W', 'T', 'F', 'S', 'S'].map((day, i) => {
-              const progress = goal > 0 ? Math.min(1, weeklySteps[i] / goal) : 0;
-              const barHeight = 130 * progress;
-              const opacity = 0.25 + 0.75 * progress;
-              return (
-                <View key={day + i} style={{ alignItems: 'center', flex: 1 }}>
-                  <View
-                    style={{
-                      height: 130,
-                      justifyContent: 'flex-end', // Align bar to bottom
-                    }}
+        {/* Goal Modal */}
+        <Modal visible={showGoalModal} transparent animationType="slide">
+          <View style={styles.modalOverlay}>
+            <View style={styles.modalContent}>
+              <Text style={styles.modalTitle}>Set Daily Step Goal</Text>
+              
+              <View style={styles.goalOptions}>
+                {[5000, 7500, 10000, 12500, 15000].map(opt => (
+                  <TouchableOpacity
+                    key={opt}
+                    onPress={() => setNewGoal(opt)}
+                    style={[
+                      styles.goalOption,
+                      newGoal === opt && styles.goalOptionSelected
+                    ]}
                   >
-                    <View
-                      style={{
-                        width: 20,
-                        height: barHeight,
-                        backgroundColor: '#A084E8',
-                        borderRadius: 8,
-                        opacity,
-                      }}
-                    />
-                  </View>
-                  <Text
-                    style={{
-                      fontFamily: 'Manrope-Regular',
-                      fontSize: 13,
-                      color: '#888',
-                      marginTop: 6,
-                    }}
-                  >
-                    {day}
-                  </Text>
-                  <Text style={{ fontFamily: 'Manrope-Regular', fontSize: 12, color: '#222', marginTop: 2 }}>{weeklySteps[i]}</Text>
-                </View>
-              );
-            })}
-          </View>
-        </View>
-      </View>
-
-
-      {/* Connected Apps Card */}
-      <View style={{ padding: 5, borderRadius: 18 }}>
-        <Text style={{ fontFamily: 'Lexend-semibold', fontSize: 18, color: '#222', marginBottom: 16 }}>
-          Connected Apps
-        </Text>
-
-        {connectedApps.map((app, index) => (
-          <TouchableOpacity key={index} style={styles.appCard}>
-            <View style={styles.cardContent}>
-              <View style={styles.iconContainer}>{app.icon}</View>
-
-              <View style={{ flex: 1 }}>
-                <Text style={styles.appName}>{app.name}</Text>
-                <Text style={[styles.appStatus, { color: app.statusColor }]}>{app.status}</Text>
+                    <Text style={[
+                      styles.goalOptionText,
+                      newGoal === opt && styles.goalOptionTextSelected
+                    ]}>
+                      {(opt / 1000).toFixed(0)}k
+                    </Text>
+                  </TouchableOpacity>
+                ))}
               </View>
 
-              {/* Status Dot */}
-              <View
-                style={[
-                  styles.statusDot,
-                  { backgroundColor: app.statusColor },
-                ]}
+              <TextInput
+                style={styles.customGoalInput}
+                keyboardType="numeric"
+                value={String(newGoal)}
+                onChangeText={text => {
+                  const num = Number(text.replace(/[^0-9]/g, ''));
+                  if (num >= 0 && num <= 50000) {
+                    setNewGoal(num);
+                  }
+                }}
+                placeholder="Enter custom goal"
               />
+              
+              <View style={styles.modalActions}>
+                <TouchableOpacity 
+                  style={[styles.modalButton, styles.cancelButton]} 
+                  onPress={() => setShowGoalModal(false)}
+                >
+                  <Text style={styles.cancelButtonText}>Cancel</Text>
+                </TouchableOpacity>
+                <TouchableOpacity 
+                  style={[styles.modalButton, styles.saveButton]} 
+                  onPress={handleSaveGoal}
+                >
+                  <Text style={styles.saveButtonText}>Save</Text>
+                </TouchableOpacity>
+              </View>
             </View>
-          </TouchableOpacity>
-        ))}
-
-        {/* Add App Button */}
-        <TouchableOpacity style={styles.addButton}>
-          <Text style={styles.addButtonText}>+ Connect New App</Text>
-        </TouchableOpacity>
-      </View>
-      </ScrollView>
-    </SafeAreaView>
+          </View>
+        </Modal>
+      </SafeAreaView>
+    </SafeAreaProvider>
   );
 };
 
-const CIRCLE_SIZE = 180;
 const styles = StyleSheet.create({
-  customHeader: {
+  container: {
+    flex: 1,
+    backgroundColor: '#F5F5F7',
+  },
+  header: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
     paddingHorizontal: 20,
     paddingVertical: 16,
-    backgroundColor: '#F8F7FC',
-    borderBottomWidth: 1,
-    borderBottomColor: '#E5E7EB',
+    backgroundColor: '#F5F5F7',
   },
   headerTitle: {
-    fontSize: 20,
-    fontWeight: 'bold',
+    fontSize: 18,
+    fontWeight: '600',
     color: '#1F2937',
     fontFamily: 'Lexend-Bold',
-    flex: 1,
+  },
+  scrollContent: {
+    padding: 20,
+    paddingBottom: 40,
+  },
+  diagnosticCard: {
+    backgroundColor: '#FEF3C7',
+    borderRadius: 16,
+    padding: 20,
+    marginBottom: 16,
+    borderWidth: 1,
+    borderColor: '#F59E0B',
+  },
+  diagnosticTitle: {
+    fontSize: 18,
+    fontWeight: '700',
+    color: '#92400E',
+    marginBottom: 16,
     textAlign: 'center',
   },
-  backButton: {
-    width: 40,
-    alignItems: 'flex-start',
-    justifyContent: 'center',
+  diagnosticGrid: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    justifyContent: 'space-between',
+    marginBottom: 16,
   },
-  circleOuter: {
-    width: CIRCLE_SIZE,
-    height: CIRCLE_SIZE,
-    borderRadius: CIRCLE_SIZE / 2,
-    borderWidth: 12,
-    borderColor: '#2E1A47',
-    alignItems: 'center',
-    justifyContent: 'center',
+  diagnosticItem: {
+    width: '48%',
+    marginBottom: 12,
+  },
+  diagnosticLabel: {
+    fontSize: 12,
+    color: '#92400E',
+    marginBottom: 4,
+  },
+  diagnosticValue: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: '#92400E',
+  },
+  statusText: {
+    fontSize: 14,
+    color: '#92400E',
     marginBottom: 8,
-    position: 'relative',
-
-    // iOS Dark Glow
-    shadowColor: 'rgba(72, 58, 112, 0.6)', // Dark violet glow
-    shadowOffset: { width: 0, height: 0 },
-    shadowOpacity: 1,
-    shadowRadius: 40, // More blur
-
-    // Android Dark Glow
-    elevation: 24,
-    backgroundColor: '#2E1A47', // Required for Android shadow
+    textAlign: 'center',
+    fontStyle: 'italic',
   },
-  circleInner: {
-    width: CIRCLE_SIZE - 24,
-    height: CIRCLE_SIZE - 24,
-    borderRadius: (CIRCLE_SIZE) / 2,
-    backgroundColor: '#fff',
+  errorText: {
+    fontSize: 12,
+    color: '#DC2626',
+    textAlign: 'center',
+    backgroundColor: '#FEE2E2',
+    padding: 8,
+    borderRadius: 8,
+  },
+  overviewCard: {
+    backgroundColor: 'white',
+    borderRadius: 16,
+    padding: 24,
+    marginBottom: 16,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.1,
+    shadowRadius: 8,
+    elevation: 3,
+  },
+  progressSection: {
+    flexDirection: 'row',
     alignItems: 'center',
-    justifyContent: 'center',
-    position: 'absolute',
-    top: 0,
-    left: 1,
-    zIndex: 2,
+    marginBottom: 20,
+  },
+  circularProgress: {
+    position: 'relative',
+    width: 100,
+    height: 100,
+    marginRight: 24,
+  },
+  progressRing: {
+    width: 100,
+    height: 100,
+    borderRadius: 50,
+    borderWidth: 8,
+    borderColor: '#E5E7EB',
+    position: 'relative',
   },
   progressArc: {
     position: 'absolute',
-    width: CIRCLE_SIZE + 2,
-    height: CIRCLE_SIZE - 30,
-    borderRadius: CIRCLE_SIZE / 2,
-    borderWidth: 12,
-    borderColor: '#A084E8',
-    borderRightColor: 'transparent',
-    borderBottomColor: 'transparent',
-    borderLeftColor: 'transparent',
-    zIndex: 1,
+    top: -8,
+    left: -8,
+    width: 100,
+    height: 100,
+    borderRadius: 50,
+    borderWidth: 8,
+    borderColor: 'transparent',
+    borderTopColor: '#7B61FF',
+    borderRightColor: '#7B61FF',
+    borderBottomColor: '#7B61FF',
   },
-  syncBtn: {
-    backgroundColor: '#7C3AED',
-    borderRadius: 10,
-    paddingVertical: 12,
-    paddingHorizontal: 32,
-    marginTop: 16,
-  },
-  syncBtnText: {
-    color: '#fff',
-    fontFamily: 'Lexend-Bold',
-    fontSize: 16,
-  },
-  appCard: {
-    backgroundColor: '#fff',
-    borderRadius: 16,
-    padding: 16,
-    marginBottom: 14,
-    shadowColor: '#181A20',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.08,
-    shadowRadius: 6,
-    elevation: 3,
-  },
-  cardContent: {
-    flexDirection: 'row',
+  progressContent: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    justifyContent: 'center',
     alignItems: 'center',
   },
-  iconContainer: {
-    backgroundColor: '#F3F4F6',
-    borderRadius: 12,
-    padding: 10,
-    marginRight: 12,
-  },
-  appName: {
+  stepsNumber: {
+    fontSize: 18,
+    fontWeight: '700',
+    color: '#1F2937',
     fontFamily: 'Lexend-Bold',
-    fontSize: 15,
-    color: '#222',
+    textAlign: 'center',
   },
-  appStatus: {
+  stepsLabel: {
+    fontSize: 12,
+    color: '#6B7280',
     fontFamily: 'Manrope-Regular',
-    fontSize: 13,
-    marginTop: 2,
+    textAlign: 'center',
   },
-  statusDot: {
-    width: 10,
-    height: 10,
-    borderRadius: 5,
-    marginLeft: 10,
+  overviewText: {
+    flex: 1,
   },
-  addButton: {
-    backgroundColor: '#1abc9c',
-    borderRadius: 14,
-    paddingVertical: 14,
+  overviewTitle: {
+    fontSize: 18,
+    fontWeight: '600',
+    color: '#1F2937',
+    marginBottom: 8,
+    fontFamily: 'Lexend-Bold',
+  },
+  progressText: {
+    fontSize: 14,
+    color: '#6B7280',
+    marginBottom: 12,
+    fontFamily: 'Manrope-Regular',
+  },
+  progressBar: {
+    height: 8,
+    backgroundColor: '#E5E7EB',
+    borderRadius: 4,
+    overflow: 'hidden',
+  },
+  progressFill: {
+    height: '100%',
+    backgroundColor: '#7B61FF',
+    borderRadius: 4,
+  },
+  liveStatus: {
+    fontSize: 12,
+    color: '#059669',
+    marginTop: 8,
+    fontStyle: 'italic',
+  },
+  quickStats: {
+    flexDirection: 'row',
+    justifyContent: 'space-around',
+    paddingTop: 20,
+    borderTopWidth: 1,
+    borderTopColor: '#F3F4F6',
+  },
+  statItem: {
+    alignItems: 'center',
+  },
+  statValue: {
+    fontSize: 16,
+    fontWeight: '700',
+    color: '#1F2937',
+    fontFamily: 'Lexend-Bold',
+  },
+  statLabel: {
+    fontSize: 12,
+    color: '#6B7280',
+    marginTop: 4,
+    fontFamily: 'Manrope-Regular',
+  },
+  testingCard: {
+    backgroundColor: '#E0F2FE',
+    borderRadius: 16,
+    padding: 20,
+    marginBottom: 16,
+    borderWidth: 1,
+    borderColor: '#0EA5E9',
+  },
+  testingTitle: {
+    fontSize: 16,
+    fontWeight: '600',
+    color: '#0C4A6E',
+    marginBottom: 12,
+    textAlign: 'center',
+  },
+  testingButtons: {
+    flexDirection: 'row',
+    justifyContent: 'space-around',
+    marginBottom: 16,
+  },
+  testButton: {
+    backgroundColor: '#0EA5E9',
+    borderRadius: 8,
+    paddingVertical: 8,
+    paddingHorizontal: 12,
+  },
+  testButtonText: {
+    color: 'white',
+    fontSize: 12,
+    fontWeight: '600',
+  },
+  troubleshootingSection: {
+    marginTop: 8,
+  },
+  troubleshootingTitle: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: '#0C4A6E',
+    marginBottom: 8,
+  },
+  troubleshootingText: {
+    fontSize: 12,
+    color: '#0C4A6E',
+    marginBottom: 4,
+  },
+  settingsButton: {
+    backgroundColor: '#7B61FF',
+    borderRadius: 8,
+    paddingVertical: 12,
+    paddingHorizontal: 16,
     marginTop: 12,
     alignItems: 'center',
   },
-  addButtonText: {
-    fontFamily: 'Lexend-Bold',
-    fontSize: 15,
-    color: '#fff',
-  },
-  progressCard: {
-    backgroundColor: '#fff',
-    borderRadius: 18,
-    padding: 16,
-    marginBottom: 14,
-    shadowColor: '#181A20',
-    shadowOffset: { width: 0, height: 3 },
-    shadowOpacity: 0.08,
-    shadowRadius: 10,
-    elevation: 4,
-  },
-  weekBtn: {
-    backgroundColor: '#E5DFFB',
-    borderRadius: 12,
-    paddingHorizontal: 14,
-    paddingVertical: 5,
-    marginLeft: 8,
-  },
-  weekBtnText: {
-    color: '#7C3AED',
-    fontFamily: 'Lexend-Bold',
+  settingsButtonText: {
+    color: 'white',
     fontSize: 14,
+    fontWeight: '600',
   },
-  monthBtn: {
-    backgroundColor: 'transparent',
-    borderRadius: 12,
-    paddingHorizontal: 14,
-    paddingVertical: 5,
-    marginLeft: 4,
+  warningBox: {
+    backgroundColor: '#FEF3C7',
+    borderRadius: 8,
+    padding: 12,
+    marginTop: 12,
+    borderWidth: 1,
+    borderColor: '#F59E0B',
   },
-  monthBtnText: {
-    color: '#888',
-    fontFamily: 'Lexend-Bold',
-    fontSize: 14,
+  warningText: {
+    fontSize: 12,
+    color: '#92400E',
   },
-
-  statCard: {
-    flex: 1,
-    backgroundColor: '#fff',
-    borderRadius: 16,
-    padding: 14,
-    marginRight: 10,
-    alignItems: 'center',
-    shadowColor: '#181A20',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.08,
-    shadowRadius: 6,
-    elevation: 2,
+  infoBox: {
+    backgroundColor: '#DBEAFE',
+    borderRadius: 8,
+    padding: 12,
+    marginTop: 12,
+    borderWidth: 1,
+    borderColor: '#3B82F6',
+  },
+  infoText: {
+    fontSize: 12,
+    color: '#1E40AF',
   },
   goalCard: {
-    backgroundColor: '#fff',
-    borderRadius: 18,
-    padding: 16,
-    marginTop: 14,
-    marginBottom: 18,
-    shadowColor: '#181A20',
-    shadowOffset: { width: 0, height: 3 },
-    shadowOpacity: 0.08,
-    shadowRadius: 10,
-    elevation: 4,
+    backgroundColor: 'white',
+    borderRadius: 16,
+    padding: 20,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.1,
+    shadowRadius: 8,
+    elevation: 3,
   },
-  goalContent: {
-    flexDirection: 'row',
-    alignItems: 'center',
-  },
-  goalIcon: {
-    width: 40,
-    height: 40,
-    borderRadius: 12,
-    backgroundColor: '#F3EEFF',
-    alignItems: 'center',
-    justifyContent: 'center',
-    marginRight: 12,
-  },
-  goalLabel: {
-    fontFamily: 'Manrope-Regular',
-    fontSize: 14,
-    color: '#888',
-    marginBottom: 2,
-  },
-  goalValue: {
-    fontFamily: 'Lexend-Bold',
+  cardTitle: {
     fontSize: 18,
-    color: '#7C3AED',
+    fontWeight: '600',
+    color: '#1F2937',
+    marginBottom: 12,
+    fontFamily: 'Lexend-Bold',
   },
-
+  goalCurrentText: {
+    fontSize: 14,
+    color: '#6B7280',
+    marginBottom: 20,
+    fontFamily: 'Manrope-Regular',
+  },
+  setGoalButton: {
+    backgroundColor: '#7B61FF',
+    borderRadius: 12,
+    paddingVertical: 16,
+    alignItems: 'center',
+  },
+  setGoalButtonText: {
+    color: 'white',
+    fontSize: 16,
+    fontWeight: '600',
+    fontFamily: 'Lexend-SemiBold',
+  },
+  // ... (keep existing modal styles)
+  modalOverlay: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    backgroundColor: 'rgba(0,0,0,0.5)',
+    padding: 20,
+  },
+  modalContent: {
+    backgroundColor: 'white',
+    borderRadius: 20,
+    padding: 24,
+    width: '100%',
+    maxWidth: 340,
+  },
+  modalTitle: {
+    fontSize: 20,
+    fontWeight: '600',
+    marginBottom: 20,
+    textAlign: 'center',
+    color: '#1F2937',
+    fontFamily: 'Lexend-Bold',
+  },
+  goalOptions: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    marginBottom: 16,
+    flexWrap: 'wrap',
+  },
+  goalOption: {
+    backgroundColor: '#F3F4F6',
+    borderRadius: 12,
+    paddingVertical: 12,
+    paddingHorizontal: 12,
+    marginHorizontal: 2,
+    marginVertical: 4,
+    minWidth: 60,
+    alignItems: 'center',
+  },
+  goalOptionSelected: {
+    backgroundColor: '#7B61FF',
+  },
+  goalOptionText: {
+    fontSize: 14,
+    fontWeight: '500',
+    color: '#374151',
+    fontFamily: 'Lexend-Medium',
+  },
+  goalOptionTextSelected: {
+    color: 'white',
+  },
+  customGoalInput: {
+    borderWidth: 1,
+    borderColor: '#E5E7EB',
+    borderRadius: 12,
+    padding: 16,
+    fontSize: 16,
+    marginBottom: 24,
+    fontFamily: 'Manrope-Regular',
+  },
+  modalActions: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+  },
+  modalButton: {
+    flex: 1,
+    paddingVertical: 14,
+    borderRadius: 12,
+    alignItems: 'center',
+    marginHorizontal: 6,
+  },
+  cancelButton: {
+    backgroundColor: '#F3F4F6',
+  },
+  saveButton: {
+    backgroundColor: '#7B61FF',
+  },
+  cancelButtonText: {
+    color: '#374151',
+    fontSize: 16,
+    fontWeight: '500',
+    fontFamily: 'Lexend-Medium',
+  },
+  saveButtonText: {
+    color: 'white',
+    fontSize: 16,
+    fontWeight: '500',
+    fontFamily: 'Lexend-Medium',
+  },
 });
 
-export default StepTrackerScreen; 
+export default StepTrackerScreen;

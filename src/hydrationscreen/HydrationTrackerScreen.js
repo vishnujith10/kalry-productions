@@ -6,6 +6,7 @@ import React, { useEffect, useMemo, useState } from 'react';
 import { Alert, Animated, Modal, ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import Icon from 'react-native-vector-icons/Feather';
+import { ContextualPersonalizationEngine } from '../algorithms/ContextualPersonalizationEngine';
 import supabase from '../lib/supabase';
 import { getResponsiveFontSize, getResponsivePadding } from '../utils/responsive';
 
@@ -41,6 +42,11 @@ const HydrationTrackerScreen = () => {
   const [historicalGoals, setHistoricalGoals] = useState(() => globalHydrationCache.cachedData?.historicalGoals || {});
   // Animated value for bar height
   const [barAnimation] = useState(new Animated.Value(0));
+  
+  // Context-aware personalization
+  const [personalizationEngine, setPersonalizationEngine] = useState(null);
+  const [contextualRecommendations, setContextualRecommendations] = useState([]);
+  const [dailyContext, setDailyContext] = useState(null);
 
   const progress = (currentIntake / dailyGoal) * 100;
   const isGoalAchieved = currentIntake >= dailyGoal;
@@ -134,6 +140,88 @@ const HydrationTrackerScreen = () => {
     setWeeklyIntakeValues(updatedWeeklyIntakeValues);
   };
 
+  // Generate context-aware hydration recommendations
+  const generateHydrationRecommendations = (context, currentIntake, goal) => {
+    const recommendations = [];
+    const progress = (currentIntake / goal) * 100;
+    
+    // High stress = need more hydration
+    if (context.responses.stress === 'High' || context.responses.stress === 'Very High') {
+      recommendations.push({
+        type: 'stress',
+        priority: 'high',
+        message: 'High stress increases cortisol and dehydration risk.',
+        action: 'Add an extra glass of water',
+        icon: '🧘‍♀️'
+      });
+    }
+    
+    // Low sleep = need more hydration
+    if (context.responses.sleep < 7) {
+      recommendations.push({
+        type: 'sleep',
+        priority: 'high',
+        message: 'Poor sleep affects hydration. Your body needs extra water to recover.',
+        action: 'Drink water first thing in the morning',
+        icon: '😴'
+      });
+    }
+    
+    // Low energy = might be dehydration
+    if (context.responses.energy === 'Low' || context.responses.energy === 'Very Low') {
+      recommendations.push({
+        type: 'energy',
+        priority: 'medium',
+        message: 'Low energy can be a sign of dehydration.',
+        action: 'Try drinking a glass of water',
+        icon: '⚡'
+      });
+    }
+    
+    // Travel situation = need more hydration
+    if (context.responses.situation && context.responses.situation.includes('Traveling')) {
+      recommendations.push({
+        type: 'travel',
+        priority: 'high',
+        message: 'Traveling increases dehydration risk, especially on flights.',
+        action: 'Drink extra water and avoid alcohol',
+        icon: '✈️'
+      });
+    }
+    
+    // High activity = need more hydration
+    if (context.responses.situation && context.responses.situation.includes('Extra active day')) {
+      recommendations.push({
+        type: 'activity',
+        priority: 'high',
+        message: 'Extra active day! Your body needs more hydration.',
+        action: 'Add 500ml extra water',
+        icon: '🏃‍♀️'
+      });
+    }
+    
+    // Progress-based recommendations
+    if (progress < 50) {
+      recommendations.push({
+        type: 'progress',
+        priority: 'medium',
+        message: 'You\'re at ' + Math.round(progress) + '% of your goal.',
+        action: 'Keep going! You\'re doing great',
+        icon: '💧'
+      });
+    } else if (progress >= 100) {
+      recommendations.push({
+        type: 'celebration',
+        priority: 'low',
+        message: 'Amazing! You\'ve hit your hydration goal! 🎉',
+        action: 'Keep up the great work',
+        icon: '🎉'
+      });
+    }
+    
+    return recommendations;
+  };
+
   const initializeUser = async () => {
     try {
       // Get current user
@@ -145,6 +233,37 @@ const HydrationTrackerScreen = () => {
       }
 
       setUserId(user.id);
+      
+      // Initialize context-aware personalization engine
+      const userProfile = {
+        weight: 70, // Default - could be fetched from user profile
+        height: 170, // Default - could be fetched from user profile
+        age: 25, // Default - could be fetched from user profile
+        gender: 'male', // Default - could be fetched from user profile
+        activityLevel: 'moderate', // Default - could be fetched from user profile
+        goal: 'maintenance', // Default - could be fetched from user profile
+        history: [], // Could be populated with recent hydration data
+        weightHistory: [] // Could be fetched from weight tracking
+      };
+      
+      const engine = new ContextualPersonalizationEngine(userProfile);
+      setPersonalizationEngine(engine);
+      
+      // Generate contextual recommendations for hydration
+      const todayCheckIn = {
+        sleepHours: 7, // Default - could be from daily check-in
+        stressLevel: 'medium', // Default - could be from daily check-in
+        energyLevel: 'medium', // Default - could be from daily check-in
+        situation: null // Could be from daily check-in
+      };
+      
+      const context = engine.processCheckInResponses(todayCheckIn);
+      setDailyContext(context);
+      
+      // Generate hydration-specific recommendations
+      const hydrationRecommendations = generateHydrationRecommendations(context, currentIntake, dailyGoal);
+      setContextualRecommendations(hydrationRecommendations);
+      
       // Clean up any existing duplicates first
       await cleanupDuplicateRecords(user.id, getCurrentDate());
       await loadTodayData(user.id);
@@ -809,6 +928,25 @@ const HydrationTrackerScreen = () => {
             ))}
           </View>
         </View>
+        
+        {/* Context-Aware Recommendations */}
+        {contextualRecommendations.length > 0 && (
+          <View style={styles.recommendationsCard}>
+            <Text style={styles.recommendationsTitle}>💡 Personalized Tips</Text>
+            {contextualRecommendations.map((rec, index) => (
+              <View key={index} style={[
+                styles.recommendationItem,
+                rec.priority === 'high' && styles.highPriorityRecommendation
+              ]}>
+                <Text style={styles.recommendationIcon}>{rec.icon}</Text>
+                <View style={styles.recommendationContent}>
+                  <Text style={styles.recommendationMessage}>{rec.message}</Text>
+                  <Text style={styles.recommendationAction}>{rec.action}</Text>
+                </View>
+              </View>
+            ))}
+          </View>
+        )}
         {/* Best Day Card */}
         <View style={styles.card}>
           <View style={styles.cardRow1}>
@@ -1295,6 +1433,60 @@ textBackdrop: {
     backgroundColor: '#f1f1f1',
     marginLeft: 56,
     marginRight: 0,
+  },
+  
+  // Context-Aware Recommendations Styles
+  recommendationsCard: {
+    backgroundColor: '#FFFFFF',
+    borderRadius: 16,
+    padding: 20,
+    marginHorizontal: 16,
+    marginVertical: 8,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.1,
+    shadowRadius: 8,
+    elevation: 3,
+  },
+  recommendationsTitle: {
+    fontSize: 18,
+    fontWeight: '700',
+    color: '#11181C',
+    marginBottom: 16,
+  },
+  recommendationItem: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    backgroundColor: '#F8F9FF',
+    borderRadius: 12,
+    padding: 16,
+    marginBottom: 12,
+    borderWidth: 1,
+    borderColor: '#E0E7FF',
+  },
+  highPriorityRecommendation: {
+    backgroundColor: '#FEF3C7',
+    borderColor: '#F59E0B',
+  },
+  recommendationIcon: {
+    fontSize: 24,
+    marginRight: 12,
+    marginTop: 2,
+  },
+  recommendationContent: {
+    flex: 1,
+  },
+  recommendationMessage: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: '#374151',
+    marginBottom: 4,
+    lineHeight: 20,
+  },
+  recommendationAction: {
+    fontSize: 13,
+    color: '#6B7280',
+    fontStyle: 'italic',
   },
 });
 

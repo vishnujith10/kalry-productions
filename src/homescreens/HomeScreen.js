@@ -3,25 +3,26 @@ import { useFocusEffect } from "@react-navigation/native";
 import * as ImagePicker from "expo-image-picker";
 import React, { useContext, useEffect, useState } from "react";
 import {
-    Alert,
-    Dimensions,
-    Image,
-    Platform,
-    ScrollView,
-    StyleSheet,
-    Text,
-    TouchableOpacity,
-    View
+  Alert,
+  Dimensions,
+  Image,
+  Platform,
+  ScrollView,
+  StyleSheet,
+  Text,
+  TouchableOpacity,
+  View
 } from "react-native";
 import { ProgressChart } from "react-native-chart-kit";
 import Animated, {
-    useAnimatedStyle,
-    useSharedValue,
-    withSpring,
-    withTiming
+  useAnimatedStyle,
+  useSharedValue,
+  withSpring,
+  withTiming
 } from 'react-native-reanimated';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { CompassionateFeedbackEngine } from "../algorithms/CompassionateFeedbackEngine";
+import { DataSyncEngine } from "../algorithms/DataSyncEngine";
 import { OnboardingContext } from "../context/OnboardingContext";
 import supabase from "../lib/supabase";
 import { createFoodLog, deleteFoodLog, getFoodLogs } from "../utils/api";

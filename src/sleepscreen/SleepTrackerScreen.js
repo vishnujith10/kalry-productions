@@ -1,123 +1,72 @@
 import { Ionicons } from '@expo/vector-icons';
 import DateTimePicker from "@react-native-community/datetimepicker";
 import { useFocusEffect, useNavigation } from '@react-navigation/native';
-import * as ImagePicker from "expo-image-picker";
 import { LinearGradient } from "expo-linear-gradient";
-import React, { useCallback, useContext, useEffect, useState } from "react";
+import React, { useCallback, useContext, useEffect, useMemo, useState } from "react";
 import {
-    Alert,
-    Modal,
-    ScrollView,
-    StyleSheet,
-    Text,
-    TextInput,
-    TouchableOpacity,
-    View,
+  Alert,
+  Dimensions,
+  Modal,
+  ScrollView,
+  StyleSheet,
+  Text,
+  TouchableOpacity,
+  View
 } from "react-native";
-import { SafeAreaView } from 'react-native-safe-area-context';
+import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { OnboardingContext } from "../context/OnboardingContext";
 import supabase from "../lib/supabase";
-import { getResponsivePadding } from '../utils/responsive';
 
 const SLEEP_QUALITIES = ["Excellent", "Good", "Fair", "Poor"];
 const MOODS = ["Relaxed", "Neutral", "Tired", "Stressed"];
 
-// Global cache for sleep data
+// Get screen dimensions
+const { height: screenHeight } = Dimensions.get('window');
+
+// Global cache for sleep logs
 const globalSleepCache = {
   cachedData: null,
   timestamp: null,
   isStale: false,
   CACHE_DURATION: 5000, // 5 seconds
 };
-const SLEEP_TIPS = [
-  "Avoid caffeine and alcohol before bed, and consider light exercise during the day to promote better sleep.",
-  "Limit screen time an hour before bed — the blue light can trick your brain into thinking it's daytime.",
-  "Try gentle stretches or breathing exercises to relax your body before sleep.",
-  "Keep your bedroom reserved for rest — avoid working or scrolling in bed.",
-  "Use calming rituals like journaling, reading, or listening to soothing music before sleep.",
-  "If you can't fall asleep within 20 minutes, get up and do a calming activity until you feel drowsy.",
-  "Expose yourself to natural sunlight during the day — it helps regulate your body's sleep-wake cycle.",
-  "Avoid heavy meals right before bed, but a light snack (like fruit or warm milk) can help if you're hungry.",
-  "Keep naps short (20–30 minutes) and avoid napping late in the day.",
-  "Maintain a comfortable sleep environment — supportive mattress, breathable bedding, and good airflow.",
-  "Create a 'worry list' earlier in the day so your mind feels clearer at night.",
-  "Practice gratitude journaling or reflection before bed to end the day with calm thoughts.",
-  "Try mindfulness or meditation techniques to quiet a racing mind.",
-  "Stick to a wind-down ritual — doing the same actions nightly signals your body it's time to sleep.",
-  "Keep your sleep space free of clutter for a calmer, more restful atmosphere.",
-  "Stay hydrated during the day, but reduce fluid intake right before bedtime to avoid sleep interruptions.",
-  "Avoid checking the clock repeatedly at night — it creates stress and makes falling asleep harder.",
-  "Experiment with aromatherapy (lavender, chamomile) to set a calming mood.",
-  "Respect your body's natural rhythm — if you're consistently sleepy earlier, adjust your bedtime gradually.",
-];
-
-function getWeekDates() {
-  const today = new Date();
-  const week = [];
-  for (let i = 6; i >= 0; i--) {
-    const d = new Date(today);
-    d.setDate(today.getDate() - i);
-    week.push(d);
-  }
-  return week;
-}
 
 const SleepTrackerScreen = () => {
   const navigation = useNavigation();
   const { onboardingData } = useContext(OnboardingContext);
+  const insets = useSafeAreaInsets();
   
-  // Initialize with cached data
+  // State management
   const [sleepLogs, setSleepLogs] = useState(() => globalSleepCache.cachedData || []);
   const [showAllLogs, setShowAllLogs] = useState(false);
-  const [tipsExpanded, setTipsExpanded] = useState(false);
   const [isFetching, setIsFetching] = useState(false);
-
-  const [lastSleep, setLastSleep] = useState(null);
-  const [startTime, setStartTime] = useState("");
-  const [endTime, setEndTime] = useState("");
+  
+  // Schedule state
+  const [scheduledBedtime, setScheduledBedtime] = useState("22:00");
+  const [scheduledWakeup, setScheduledWakeup] = useState("07:30");
+  const [isEditingSchedule, setIsEditingSchedule] = useState(false);
+  const [todayHasSleepLog, setTodayHasSleepLog] = useState(false);
+  
+  const [showLogModal, setShowLogModal] = useState(false);
   const [quality, setQuality] = useState("Good");
   const [mood, setMood] = useState("Relaxed");
-  const [weekData, setWeekData] = useState([]);
-  const [tipsIdx, setTipsIdx] = useState(0);
-  const [showFromPicker, setShowFromPicker] = useState(false);
-  const [showToPicker, setShowToPicker] = useState(false);
-  const [showLogModal, setShowLogModal] = useState(false);
-  const [sleepPhoto, setSleepPhoto] = useState(null);
-  const [appleHealthSynced, setAppleHealthSynced] = useState(false);
-  const [bedtimeReminder, setBedtimeReminder] = useState("22:30");
-  const [wakeReminder, setWakeReminder] = useState("06:45");
-  const [showBedtimeReminderPicker, setShowBedtimeReminderPicker] =
-    useState(false);
-  const [showWakeReminderPicker, setShowWakeReminderPicker] = useState(false);
-  const [sleepGoal, setSleepGoal] = useState(8); // default 8 hours
-  const [isLoadingGoal, setIsLoadingGoal] = useState(true);
-  const [editMode, setEditMode] = useState(false);
-  const [editingLogId, setEditingLogId] = useState(null);
-  const [showAlreadyLoggedModal, setShowAlreadyLoggedModal] = useState(false);
-  const [expandedMonths, setExpandedMonths] = useState(new Set());
-  const [refreshTrigger, setRefreshTrigger] = useState(0); // Force recalculation
+  const [showBedtimePicker, setShowBedtimePicker] = useState(false);
+  const [showWakeupPicker, setShowWakeupPicker] = useState(false);
+  
+  // Sleep goal
+  const [sleepGoal, setSleepGoal] = useState(8);
   const [showSleepGoalModal, setShowSleepGoalModal] = useState(false);
   const [tempSleepGoal, setTempSleepGoal] = useState(8);
+  
+  // History view
+  const [expandedMonths, setExpandedMonths] = useState(new Set());
+  const [refreshTrigger, setRefreshTrigger] = useState(0);
+  
+  // AI insights and recommendations
+  const [sleepInsights, setSleepInsights] = useState([]);
+  const [sleepRecommendations, setSleepRecommendations] = useState([]);
 
-  function computeHoursBetween(startHHMM, endHHMM) {
-    if (!startHHMM || !endHHMM) return null;
-    const [sh, sm] = startHHMM.split(":").map((n) => parseInt(n, 10) || 0);
-    const [eh, em] = endHHMM.split(":").map((n) => parseInt(n, 10) || 0);
-    let mins = eh * 60 + em - (sh * 60 + sm);
-    if (mins < 0) mins += 24 * 60; // across midnight
-    return Math.max(0, Math.round(mins / 60)); // keep goal as integer hours
-  }
-
-  // Recalculate goal from reminders whenever they change
-  useEffect(() => {
-    const derived = computeHoursBetween(bedtimeReminder, wakeReminder);
-    if (derived && derived !== sleepGoal) {
-      setSleepGoal(derived);
-      // Persist for consistency
-      saveSleepGoal(derived);
-    }
-  }, [bedtimeReminder, wakeReminder]);
-
+  // User ID resolution
   const [realUserId, setRealUserId] = useState(null);
   
   useEffect(() => {
@@ -126,419 +75,17 @@ const SleepTrackerScreen = () => {
       .then(({ data: { user } }) => setRealUserId(user?.id));
   }, []);
 
-  // Helper to get today's date string in local timezone
+  // Helper functions
   const getTodayString = () => {
     const today = new Date();
     return today.toISOString().slice(0, 10);
   };
 
-  // Cache-first data fetching with useFocusEffect
-  useFocusEffect(
-    useCallback(() => {
-      if (!realUserId) return;
-
-      const now = Date.now();
-      const isCacheValid = globalSleepCache.timestamp && 
-        (now - globalSleepCache.timestamp) < globalSleepCache.CACHE_DURATION;
-
-      // If cache is fresh, use it and skip fetch
-      if (isCacheValid && globalSleepCache.cachedData) {
-        setSleepLogs(globalSleepCache.cachedData);
-        setLastSleep(globalSleepCache.cachedData?.[0] || null);
-        return;
-      }
-
-      // If cache is stale, use it immediately but fetch fresh data
-      if (globalSleepCache.cachedData && globalSleepCache.isStale) {
-        setSleepLogs(globalSleepCache.cachedData);
-        setLastSleep(globalSleepCache.cachedData?.[0] || null);
-      }
-
-      // Fetch fresh data
-      fetchSleepLogs();
-      fetchSleepGoal();
-    }, [realUserId])
-  );
-
-  // Monitor sleep logs changes for week data updates
-  useEffect(() => {
-    if (sleepLogs.length > 0) {
-      // Prepare week data
-      const week = getWeekDates();
-      const weekMap = {};
-      sleepLogs.forEach((log) => {
-        const logDate = getDateOnly(log.date);
-        weekMap[logDate] = log; 
-      });
-      setWeekData(
-        week.map((d) => weekMap[d.toISOString().slice(0, 10)] || null)
-      );
-    }
-  }, [sleepLogs, refreshTrigger]);
-
-  // Auto-expand current month when "View all" is clicked
-  useEffect(() => {
-    if (showAllLogs && sleepLogs.length > 0) {
-      const currentMonth = new Date().toISOString().slice(0, 7);
-      setExpandedMonths((prev) => {
-        const newSet = new Set(prev);
-        newSet.add(currentMonth);
-        return newSet;
-      });
-    }
-  }, [showAllLogs, sleepLogs]);
-
-  // Cache-first fetch function
-  async function fetchSleepLogs() {
-    if (!realUserId || isFetching) return;
-    
-    setIsFetching(true);
-    try {
-      const { data, error } = await supabase
-        .from("sleep_logs")
-        .select("*")
-        .eq("user_id", realUserId)
-        .order("date", { ascending: false });
-
-      if (error) {
-        console.log("Error fetching sleep logs:", error);
-        return;
-      }
-
-      // Filter out any logs with invalid or empty duration
-      const validData = (data || []).filter((log) => {
-        if (!log || !log.duration) return false;
-        const mins = parseIntervalToMinutes(log.duration);
-        return mins > 0;
-      });
-
-      // Update cache
-      globalSleepCache.cachedData = validData;
-      globalSleepCache.timestamp = Date.now();
-      globalSleepCache.isStale = false;
-
-      // Only update state if data has changed
-      const currentDataString = JSON.stringify(sleepLogs);
-      const newDataString = JSON.stringify(validData);
-      
-      if (currentDataString !== newDataString) {
-        setSleepLogs(validData);
-        setLastSleep(validData?.[0] || null);
-        
-        // Prepare week data
-        const week = getWeekDates();
-        const weekMap = {};
-        validData.forEach((log) => {
-          const logDate = getDateOnly(log.date);
-          weekMap[logDate] = log; 
-        });
-        setWeekData(
-          week.map((d) => weekMap[d.toISOString().slice(0, 10)] || null)
-        );
-      }
-    } catch (err) {
-      console.log("Error fetching sleep logs:", err);
-    } finally {
-      setIsFetching(false);
-    }
-  }
-
-  // NEW: Fetch user's saved sleep goal from database
-  async function fetchSleepGoal() {
-    if (!realUserId) return;
-    try {
-      // First try to get the goal from the most recent sleep log
-      const { data: recentLog, error: recentError } = await supabase
-        .from("sleep_logs")
-        .select("sleep_goal")
-        .eq("user_id", realUserId)
-        .not("sleep_goal", "is", null)
-        .order("date", { ascending: false })
-        .limit(1);
-
-      if (recentError) {
-        console.log("Error fetching recent sleep goal:", recentError);
-        return;
-      }
-
-      if (recentLog && recentLog.length > 0 && recentLog[0].sleep_goal) {
-        setSleepGoal(recentLog[0].sleep_goal);
-      } else {
-        setSleepGoal(8);
-      }
-
-      setIsLoadingGoal(false);
-    } catch (err) {
-      console.log("Error fetching sleep goal:", err);
-      setIsLoadingGoal(false);
-    }
-  }
-
-  // NEW: Save sleep goal to database
-  async function saveSleepGoal(newGoal) {
-    if (!realUserId) return;
-    try {
-      // Update the most recent sleep log with the new goal
-      const { data: recentLog, error: recentError } = await supabase
-        .from("sleep_logs")
-        .select("id")
-        .eq("user_id", realUserId)
-        .order("date", { ascending: false })
-        .limit(1);
-
-      if (recentError) {
-        console.log("Error fetching recent log for goal update:", recentError);
-        return;
-      }
-
-      if (recentLog && recentLog.length > 0) {
-        // Update existing log with new goal
-        const { error: updateError } = await supabase
-          .from("sleep_logs")
-          .update({ sleep_goal: newGoal })
-          .eq("id", recentLog[0].id);
-
-        if (updateError) {
-          console.log("Error updating sleep goal:", updateError);
-        }
-      } else {
-        // Create a new log entry with the goal if no logs exist
-        const { error: insertError } = await supabase
-          .from("sleep_logs")
-          .insert([
-            {
-              user_id: realUserId,
-              date: getTodayString(),
-              sleep_goal: newGoal,
-              start_time: null,
-              end_time: null,
-              duration: null,
-              quality: null,
-              mood: null,
-            },
-          ]);
-
-        if (insertError) {
-          console.log("Error creating sleep goal entry:", insertError);
-        }
-      }
-    } catch (err) {
-      console.log("Error saving sleep goal:", err);
-    }
-  }
-
-  // Handle sleep goal update
-  const handleSleepGoalUpdate = async () => {
-    if (tempSleepGoal < 1 || tempSleepGoal > 24) {
-      Alert.alert("Invalid Goal", "Sleep goal must be between 1 and 24 hours");
-      return;
-    }
-    
-    setSleepGoal(tempSleepGoal);
-    await saveSleepGoal(tempSleepGoal);
-    setShowSleepGoalModal(false);
+  const getDateOnly = (str) => {
+    return str ? str.slice(0, 10) : "";
   };
 
-  async function handleAddSleep() {
-    if (!realUserId || !startTime || !endTime) {
-      Alert.alert("Missing info", "Please select both start and end time.");
-      return;
-    }
-    
-    // Calculate duration as string
-    const [sh, sm] = startTime.split(":").map(Number);
-    const [eh, em] = endTime.split(":").map(Number);
-    let mins = eh * 60 + em - (sh * 60 + sm);
-    if (mins < 0) mins += 24 * 60;
-    const hours = Math.floor(mins / 60);
-    const minutes = mins % 60;
-    const duration = `${hours.toString().padStart(2, "0")}:${minutes
-      .toString()
-      .padStart(2, "0")}:00`;
-    
-    // Fixed logic for date assignment
-    let logDate = new Date();
-    
-    // Only adjust date if sleep clearly crosses midnight
-    if (sh > eh || (sh === eh && sm > em)) {
-      const now = new Date();
-      const currentHour = now.getHours();
-      const currentMinute = now.getMinutes();
-      
-      if (currentHour < eh || (currentHour === eh && currentMinute < em)) {
-        logDate.setDate(logDate.getDate() - 1);
-      }
-    }
-    
-    const dateStr = logDate.toISOString().slice(0, 10);
-    
-    // Check for existing log for this date
-    const existingLog = sleepLogs.find(
-      (l) => getDateOnly(l.date) === dateStr && l.user_id === realUserId
-    );
-    if (!editMode && existingLog) {
-      setShowAlreadyLoggedModal(true);
-      return;
-    }
-
-    try {
-      let error;
-      if (editMode && editingLogId) {
-        // Update existing log
-        ({ error } = await supabase
-          .from("sleep_logs")
-          .update({
-          start_time: startTime,
-          end_time: endTime,
-          duration,
-          quality,
-          mood,
-          })
-          .eq("id", editingLogId));
-      } else {
-        // Insert new log
-        ({ error } = await supabase.from("sleep_logs").insert([
-          {
-          user_id: realUserId,
-          date: dateStr,
-          start_time: startTime,
-          end_time: endTime,
-          duration,
-          quality,
-          mood,
-            sleep_goal: sleepGoal, // Include the current sleep goal
-          },
-        ]));
-      }
-      
-      if (error) throw error;
-      
-      // Optimistic update - update global cache immediately
-      const newLog = {
-        id: editingLogId || `temp_${Date.now()}`,
-        user_id: realUserId,
-        date: dateStr,
-        start_time: startTime,
-        end_time: endTime,
-        duration,
-        quality,
-        mood,
-        sleep_goal: sleepGoal,
-      };
-
-      // Update global cache optimistically
-      if (editMode && editingLogId) {
-        // Update existing log in cache
-        const updatedLogs = globalSleepCache.cachedData?.map(log => 
-          log.id === editingLogId ? { ...log, ...newLog } : log
-        ) || [];
-        globalSleepCache.cachedData = updatedLogs;
-      } else {
-        // Add new log to cache
-        const updatedLogs = [newLog, ...(globalSleepCache.cachedData || [])];
-        globalSleepCache.cachedData = updatedLogs;
-      }
-      
-      // Update local state immediately
-      setSleepLogs(globalSleepCache.cachedData);
-      setLastSleep(globalSleepCache.cachedData?.[0] || null);
-
-      // Update MainDashboard cache
-      try {
-        const { updateMainDashboardSleepCache } = require('../utils/cacheManager');
-        updateMainDashboardSleepCache({
-          date: dateStr,
-          duration,
-          quality,
-          mood,
-          sleep_goal: sleepGoal,
-        });
-      } catch (error) {
-        // Silent - cacheManager might not exist yet
-      }
-      
-      Alert.alert(
-        "Success",
-        editMode ? "Sleep log updated!" : "Sleep log added!"
-      );
-      
-      // Clear form and close modal
-      setStartTime("");
-      setEndTime("");
-      setQuality("Good");
-      setMood("Relaxed");
-      setEditMode(false);
-      setEditingLogId(null);
-      setShowLogModal(false);
-      
-      // Mark cache as stale to trigger refresh on next focus
-      globalSleepCache.isStale = true;
-      
-      // Force recalculation of consistency
-      setRefreshTrigger(prev => prev + 1);
-    } catch (err) {
-      Alert.alert("Error", err.message);
-    }
-  }
-
-  async function handlePickPhoto() {
-    const result = await ImagePicker.launchImageLibraryAsync({ 
-      mediaTypes: ImagePicker.MediaTypeOptions.Images, 
-      quality: 0.7,
-    });
-    if (!result.canceled && result.assets && result.assets.length > 0) {
-      const photo = result.assets[0];
-      const {
-        data: { session },
-      } = await supabase.auth.getSession();
-      const userId = session?.user?.id;
-      if (!userId) return;
-      const fileExt = photo.uri.split(".").pop();
-      const fileName = `sleep_${userId}_${Date.now()}.${fileExt}`;
-      const { data, error } = await supabase.storage
-        .from("sleep-photos")
-        .upload(fileName, {
-        uri: photo.uri,
-          type: "image/jpeg",
-        name: fileName,
-      });
-      if (!error && data?.path) {
-        const publicUrl = supabase.storage
-          .from("sleep-photos")
-          .getPublicUrl(data.path).publicUrl;
-        setSleepPhoto(publicUrl);
-      }
-    }
-  }
-
-  function formatDurationString(duration) {
-    if (!duration) return "--";
-    const hMatch = duration.match(/(\d+)\s*hour/);
-    const mMatch = duration.match(/(\d+)\s*minute/);
-    const h = hMatch ? parseInt(hMatch[1]) : 0;
-    const m = mMatch ? parseInt(mMatch[1]) : 0;
-    if (h && m) return `${h}h ${m}m`;
-    if (h) return `${h}h`;
-    if (m) return `${m}m`;
-    return "--";
-  }
-
-  function formatTime12h(time) {
-    if (!time) return "";
-    let [h, m] = time.split(":").map(Number);
-    const ampm = h >= 12 ? "PM" : "AM";
-    h = h % 12;
-    if (h === 0) h = 12;
-    return `${h}:${m.toString().padStart(2, "0")} ${ampm}`;
-  }
-
-  // Helper to normalize date string (handles 'YYYY-MM-DD' and 'YYYY-MM-DDTHH:MM:SSZ')
-  function getDateOnly(str) {
-    return str ? str.slice(0, 10) : "";
-  }
-
-  // Helper to convert interval (e.g., '08:30:00') to '8h 30m' (robust)
-  function parseIntervalToDisplay(interval) {
+  const parseIntervalToDisplay = (interval) => {
     if (!interval || typeof interval !== "string") return "--";
     const clean = interval.trim();
     if (!clean.includes(":")) return "--";
@@ -551,10 +98,9 @@ const SleepTrackerScreen = () => {
     if (h > 0) return `${h}h`;
     if (m > 0) return `${m}m`;
     return "--";
-  }
+  };
 
-  // Helper to convert interval to total minutes (robust)
-  function parseIntervalToMinutes(interval) {
+  const parseIntervalToMinutes = (interval) => {
     if (!interval || typeof interval !== "string") return 0;
     const clean = interval.trim();
     if (!clean.includes(":")) return 0;
@@ -563,10 +109,74 @@ const SleepTrackerScreen = () => {
     const h = parseInt(parts[0]) || 0;
     const m = parseInt(parts[1]) || 0;
     return h * 60 + m;
-  }
+  };
 
-  // Helper to group logs by month
-  function groupLogsByMonth(logs) {
+  const formatTime12h = (time) => {
+    if (!time) return "";
+    let [h, m] = time.split(":").map(Number);
+    const ampm = h >= 12 ? "pm" : "am";
+    h = h % 12;
+    if (h === 0) h = 12;
+    return `${h}:${m.toString().padStart(2, "0")} ${ampm}`;
+  };
+
+  const calculateDuration = (start, end) => {
+    const [sh, sm] = start.split(":").map(Number);
+    const [eh, em] = end.split(":").map(Number);
+    let mins = eh * 60 + em - (sh * 60 + sm);
+    if (mins < 0) mins += 24 * 60;
+    const hours = Math.floor(mins / 60);
+    const minutes = mins % 60;
+    return `${hours.toString().padStart(2, "0")}:${minutes
+      .toString()
+      .padStart(2, "0")}:00`;
+  };
+
+  // FIXED: Memoized button states to prevent infinite re-renders
+  const buttonStates = useMemo(() => {
+    const todayStr = getTodayString();
+    const todayLog = sleepLogs.find(
+      (l) => getDateOnly(l.date) === todayStr && l.user_id === realUserId
+    );
+    
+    if (!todayLog) {
+      // State 1: Before logging (no log today)
+      return {
+        canClickBedtime: true,        // Always clickable
+        canClickWakeup: true,         // Always clickable  
+        canClickLog: scheduledBedtime && scheduledWakeup, // Only when both times set
+        logButtonEnabled: scheduledBedtime && scheduledWakeup,
+        hasLog: false
+      };
+    } else {
+      // State 2: After logging (log exists today)
+      if (!isEditingSchedule) {
+        return {
+          canClickBedtime: false,     // Non-clickable
+          canClickWakeup: false,      // Non-clickable
+          canClickLog: false,         // Non-clickable
+          logButtonEnabled: false,
+          hasLog: true
+        };
+      } else {
+        // State 3: Editing existing log
+        return {
+          canClickBedtime: true,      // Clickable when editing
+          canClickWakeup: true,       // Clickable when editing
+          canClickLog: true,          // Clickable for update
+          logButtonEnabled: true,
+          hasLog: true
+        };
+      }
+    }
+  }, [sleepLogs, realUserId, scheduledBedtime, scheduledWakeup, isEditingSchedule]);
+
+  // FIXED: Update todayHasSleepLog based on button states
+  useEffect(() => {
+    setTodayHasSleepLog(buttonStates.hasLog);
+  }, [buttonStates.hasLog]);
+
+  const groupLogsByMonth = (logs) => {
     const grouped = {};
 
     logs.forEach((log) => {
@@ -590,22 +200,19 @@ const SleepTrackerScreen = () => {
       grouped[monthKey].logs.push(log);
     });
 
-    // Sort months in descending order (most recent first)
     const sortedMonths = Object.values(grouped).sort((a, b) =>
       b.monthKey.localeCompare(a.monthKey)
     );
 
-    // Mark current month
     const currentMonth = new Date().toISOString().slice(0, 7);
     sortedMonths.forEach((month) => {
       month.isCurrentMonth = month.monthKey === currentMonth;
     });
 
     return sortedMonths;
-  }
+  };
 
-  // Helper to toggle month expansion
-  function toggleMonthExpansion(monthKey) {
+  const toggleMonthExpansion = (monthKey) => {
     setExpandedMonths((prev) => {
       const newSet = new Set(prev);
       if (newSet.has(monthKey)) {
@@ -615,15 +222,392 @@ const SleepTrackerScreen = () => {
       }
       return newSet;
     });
+  };
+
+  // Data fetching
+  useFocusEffect(
+    useCallback(() => {
+      if (!realUserId) return;
+
+      const now = Date.now();
+      const isCacheValid = globalSleepCache.timestamp && 
+        (now - globalSleepCache.timestamp) < globalSleepCache.CACHE_DURATION;
+
+      if (isCacheValid && globalSleepCache.cachedData) {
+        setSleepLogs(globalSleepCache.cachedData);
+        return;
+      }
+
+      if (globalSleepCache.cachedData && globalSleepCache.isStale) {
+        setSleepLogs(globalSleepCache.cachedData);
+      }
+
+      fetchSleepLogs();
+      fetchSleepGoal();
+    }, [realUserId])
+  );
+
+  const fetchSleepLogs = useCallback(async () => {
+    if (!realUserId || isFetching) return;
+    
+    setIsFetching(true);
+    try {
+      console.log('🔍 Fetching sleep logs for user:', realUserId);
+      
+      const { data, error } = await supabase
+        .from("sleep_logs")
+        .select("*")
+        .eq("user_id", realUserId)
+        .order("date", { ascending: false });
+
+      if (error) {
+        console.log("❌ Error fetching sleep logs:", error);
+        return;
+      }
+
+      console.log('✅ Raw data received:', data?.length || 0, 'logs');
+
+      const validData = (data || []).filter((log) => {
+        if (!log || !log.duration) return false;
+        const mins = parseIntervalToMinutes(log.duration);
+        return mins > 0;
+      });
+
+      console.log('✅ Valid logs after filtering:', validData.length);
+
+      globalSleepCache.cachedData = validData;
+      globalSleepCache.timestamp = Date.now();
+      globalSleepCache.isStale = false;
+
+      setSleepLogs(validData);
+      
+      const insights = generateSleepInsights(validData);
+      setSleepInsights(insights);
+      
+      const recommendations = generateSleepRecommendations(validData, sleepGoal);
+      setSleepRecommendations(recommendations);
+      
+    } catch (err) {
+      console.log("❌ Error fetching sleep logs:", err);
+    } finally {
+      setIsFetching(false);
+    }
+  }, [realUserId, isFetching, sleepGoal]);
+
+  const fetchSleepGoal = useCallback(async () => {
+    if (!realUserId) return;
+    try {
+      const { data: recentLog, error: recentError } = await supabase
+        .from("sleep_logs")
+        .select("sleep_goal")
+        .eq("user_id", realUserId)
+        .not("sleep_goal", "is", null)
+        .order("date", { ascending: false })
+        .limit(1);
+
+      if (recentError) {
+        console.log("Error fetching recent sleep goal:", recentError);
+        return;
+      }
+
+      if (recentLog && recentLog.length > 0 && recentLog[0].sleep_goal) {
+        setSleepGoal(recentLog[0].sleep_goal);
+      } else {
+        setSleepGoal(8);
+      }
+    } catch (err) {
+      console.log("Error fetching sleep goal:", err);
+    }
+  }, [realUserId]);
+
+  // Generate insights and recommendations
+  const generateSleepInsights = useCallback((sleepLogs) => {
+    if (!sleepLogs || sleepLogs.length === 0) return [];
+    
+    const insights = [];
+    const recentLogs = sleepLogs.slice(0, 7);
+    
+    const avgDuration = recentLogs.reduce((sum, log) => {
+      const minutes = parseIntervalToMinutes(log.duration);
+      return sum + minutes;
+    }, 0) / recentLogs.length;
+    
+    const avgHours = avgDuration / 60;
+    
+    if (avgHours < 7) {
+      insights.push({
+        type: 'duration',
+        priority: 'high',
+        title: 'Sleep Duration Alert',
+        message: `You're averaging ${avgHours.toFixed(1)} hours of sleep. Research shows 7-9 hours is optimal for health.`,
+        icon: '😴',
+        action: 'Try going to bed 30 minutes earlier'
+      });
+    } else if (avgHours > 9) {
+      insights.push({
+        type: 'duration',
+        priority: 'medium',
+        title: 'Oversleeping Pattern',
+        message: `You're averaging ${avgHours.toFixed(1)} hours of sleep. Too much sleep can also affect energy levels.`,
+        icon: '😴',
+        action: 'Consider setting a consistent wake time'
+      });
+    } else {
+      insights.push({
+        type: 'duration',
+        priority: 'low',
+        title: 'Great Sleep Duration!',
+        message: `You're averaging ${avgHours.toFixed(1)} hours of sleep. This is in the optimal range!`,
+        icon: '✅',
+        action: 'Keep up the great work!'
+      });
+    }
+    
+    return insights;
+  }, []);
+  
+  const generateSleepRecommendations = useCallback((sleepLogs, goal) => {
+    const recommendations = [];
+    
+    if (!sleepLogs || sleepLogs.length === 0) {
+      recommendations.push({
+        type: 'general',
+        message: 'Start tracking your sleep to get personalized recommendations!',
+        action: 'Set your schedule and log your first sleep session'
+      });
+      return recommendations;
+    }
+    
+    const recentLogs = sleepLogs.slice(0, 3);
+    const avgDuration = recentLogs.reduce((sum, log) => {
+      const minutes = parseIntervalToMinutes(log.duration);
+      return sum + minutes;
+    }, 0) / recentLogs.length;
+    
+    const avgHours = avgDuration / 60;
+    
+    if (avgHours < goal - 0.5) {
+      recommendations.push({
+        type: 'duration',
+        message: `You're averaging ${avgHours.toFixed(1)} hours, but your goal is ${goal} hours.`,
+        action: 'Try going to bed 30 minutes earlier tonight'
+      });
+    }
+    
+    return recommendations;
+  }, []);
+
+  // Sleep logging workflow
+  const handleLogSleep = useCallback(async () => {
+    if (!realUserId || !buttonStates.logButtonEnabled) {
+      Alert.alert("Cannot Log Sleep", "Please set your bedtime and wake up time first.");
+      return;
+    }
+    
+    const duration = calculateDuration(scheduledBedtime, scheduledWakeup);
+    let logDate = new Date();
+    
+    const [sh, sm] = scheduledBedtime.split(":").map(Number);
+    const [eh, em] = scheduledWakeup.split(":").map(Number);
+    
+    if (sh > eh || (sh === eh && sm > em)) {
+      const now = new Date();
+      const currentHour = now.getHours();
+      const currentMinute = now.getMinutes();
+      
+      if (currentHour < eh || (currentHour === eh && currentMinute < em)) {
+        logDate.setDate(logDate.getDate() - 1);
+      }
+    }
+    
+    const dateStr = logDate.toISOString().slice(0, 10);
+    
+    try {
+      let error;
+      if (todayHasSleepLog) {
+        // Update existing log
+        const existingLog = sleepLogs.find(
+          (l) => getDateOnly(l.date) === dateStr && l.user_id === realUserId
+        );
+        
+        ({ error } = await supabase
+          .from("sleep_logs")
+          .update({
+            start_time: scheduledBedtime,
+            end_time: scheduledWakeup,
+            duration,
+            quality,
+            mood,
+            sleep_goal: sleepGoal,
+          })
+          .eq("id", existingLog.id));
+      } else {
+        // Create new log
+        ({ error } = await supabase.from("sleep_logs").insert([
+          {
+            user_id: realUserId,
+            date: dateStr,
+            start_time: scheduledBedtime,
+            end_time: scheduledWakeup,
+            duration,
+            quality,
+            mood,
+            sleep_goal: sleepGoal,
+          },
+        ]));
+      }
+      
+      if (error) throw error;
+      
+      // Update cache optimistically
+      const newLog = {
+        id: `temp_${Date.now()}`,
+        user_id: realUserId,
+        date: dateStr,
+        start_time: scheduledBedtime,
+        end_time: scheduledWakeup,
+        duration,
+        quality,
+        mood,
+        sleep_goal: sleepGoal,
+      };
+
+      if (todayHasSleepLog) {
+        const updatedLogs = globalSleepCache.cachedData?.map(log => 
+          getDateOnly(log.date) === dateStr && log.user_id === realUserId 
+            ? { ...log, ...newLog } 
+            : log
+        ) || [];
+        globalSleepCache.cachedData = updatedLogs;
+      } else {
+        const updatedLogs = [newLog, ...(globalSleepCache.cachedData || [])];
+        globalSleepCache.cachedData = updatedLogs;
+      }
+      
+      setSleepLogs(globalSleepCache.cachedData);
+      
+      Alert.alert(
+        "Success! 🌟",
+        todayHasSleepLog ? "Sleep log updated!" : "Sleep logged successfully!"
+      );
+      
+      // Reset editing state after successful logging
+      setIsEditingSchedule(false);
+      
+      globalSleepCache.isStale = true;
+      setRefreshTrigger(prev => prev + 1);
+    } catch (err) {
+      Alert.alert("Error", err.message);
+    }
+  }, [realUserId, buttonStates.logButtonEnabled, scheduledBedtime, scheduledWakeup, todayHasSleepLog, sleepLogs, quality, mood, sleepGoal]);
+
+  const handleSaveSleepGoal = useCallback(async () => {
+    if (!realUserId) return;
+
+    try {
+      const { error } = await supabase
+        .from("user_preferences")
+        .upsert([
+          {
+            user_id: realUserId,
+            sleep_goal: tempSleepGoal,
+          },
+        ]);
+
+      if (error) throw error;
+
+      setSleepGoal(tempSleepGoal);
+      setShowSleepGoalModal(false);
+      Alert.alert("Success", "Sleep goal updated successfully!");
+    } catch (error) {
+      console.error("Error saving sleep goal:", error);
+      Alert.alert("Error", "Failed to save sleep goal. Please try again.");
+    }
+  }, [realUserId, tempSleepGoal]);
+
+  // Handle schedule button clicks
+  const handleBedtimeClick = useCallback(() => {
+    console.log('🛏️ Bedtime clicked, canClickBedtime:', buttonStates.canClickBedtime);
+    if (buttonStates.canClickBedtime) {
+      setShowBedtimePicker(true);
+    }
+  }, [buttonStates.canClickBedtime]);
+
+  const handleWakeupClick = useCallback(() => {
+    console.log('☀️ Wakeup clicked, canClickWakeup:', buttonStates.canClickWakeup);
+    if (buttonStates.canClickWakeup) {
+      setShowWakeupPicker(true);
+    }
+  }, [buttonStates.canClickWakeup]);
+
+  // Handle edit button click
+  const handleEditSchedule = useCallback(() => {
+    console.log('✏️ Edit button clicked, current state:', isEditingSchedule);
+    
+    if (todayHasSleepLog && !isEditingSchedule) {
+      // Load existing log data for editing
+      const todayStr = getTodayString();
+      const todayLog = sleepLogs.find(
+        (l) => getDateOnly(l.date) === todayStr && l.user_id === realUserId
+      );
+      
+      if (todayLog) {
+        setScheduledBedtime(todayLog.start_time);
+        setScheduledWakeup(todayLog.end_time);
+        setQuality(todayLog.quality || "Good");
+        setMood(todayLog.mood || "Relaxed");
+      }
+    }
+    
+    setIsEditingSchedule(!isEditingSchedule);
+  }, [isEditingSchedule, todayHasSleepLog, sleepLogs, realUserId]);
+
+  // Calculations
+  const todayStr = getTodayString();
+  const todayLog = sleepLogs.find(
+    (l) => getDateOnly(l.date) === todayStr && l.user_id === realUserId
+  );
+
+  const todayDuration = todayLog?.duration
+    ? parseIntervalToDisplay(todayLog.duration)
+    : "No data";
+
+  const todayPercent = todayLog?.duration
+    ? Math.round((parseIntervalToMinutes(todayLog.duration) / (sleepGoal * 60)) * 100)
+    : 0;
+
+  // Weekly calculations
+  const weekDays = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
+  const weekDateObjs = [];
+  const today = new Date();
+  const monday = new Date(today);
+  const dayOfWeek = today.getDay();
+  const daysToSubtract = dayOfWeek === 0 ? 6 : dayOfWeek - 1;
+  monday.setDate(today.getDate() - daysToSubtract);
+  for (let i = 0; i < 7; i++) {
+    const d = new Date(monday);
+    d.setDate(monday.getDate() + i);
+    weekDateObjs.push(d);
   }
 
-  // Calculate average sleep duration from sleepLogs
-  function getAverageSleepDuration(logs) {
+  const weekLogMap = {};
+  sleepLogs.forEach((log) => {
+    weekLogMap[getDateOnly(log.date)] = log; 
+  });
+
+  const weekTotalMins = weekDateObjs.reduce((sum, d) => {
+    const key = d.toISOString().slice(0, 10);
+    const log = weekLogMap[key];
+    const mins = log && log.duration ? parseIntervalToMinutes(log.duration) : 0;
+    return sum + mins;
+  }, 0);
+
+  // Calculate average sleep
+  const getAverageSleepDuration = useCallback((logs) => {
     if (!logs || logs.length === 0) {
-      return "--";
+      return "No data";
     }
 
-    // Filter out logs with valid duration data AND only consider very recent logs (today or yesterday)
     const today = new Date();
     const yesterday = new Date(today);
     yesterday.setDate(today.getDate() - 1);
@@ -633,7 +617,6 @@ const SleepTrackerScreen = () => {
         return false;
       }
 
-      // Check if log is from today or yesterday only
       const logDate = new Date(log.date);
       const isToday = logDate.toDateString() === today.toDateString();
       const isYesterday = logDate.toDateString() === yesterday.toDateString();
@@ -648,7 +631,7 @@ const SleepTrackerScreen = () => {
     });
 
     if (recentValidLogs.length === 0) {
-      return "--";
+      return "No data";
     }
 
     let totalMinutes = 0;
@@ -665,1461 +648,1166 @@ const SleepTrackerScreen = () => {
     if (avgH > 0 && avgM > 0) result = `${avgH}h ${avgM}m`;
     else if (avgH > 0) result = `${avgH}h`;
     else if (avgM > 0) result = `${avgM}m`;
-    else result = "--";
+    else result = "No data";
 
     return result;
-  }
-
-  // *FIXED*: Get today's log and calculate metrics properly
-  const todayStr = getTodayString();
-  const todayLog = sleepLogs.find(
-    (l) => getDateOnly(l.date) === todayStr && l.user_id === realUserId
-  );
-
-
-  let todayDuration = "--";
-  let todayMinutes = 0;
-  let todayPercent = 0;
-  let hitGoal = false;
-
-  if (todayLog && todayLog.duration) {
-    todayDuration = parseIntervalToDisplay(todayLog.duration);
-    todayMinutes = parseIntervalToMinutes(todayLog.duration);
-    todayPercent =
-      sleepGoal > 0
-        ? Math.min(100, Math.round((todayMinutes / (sleepGoal * 60)) * 100))
-        : 0;
-    hitGoal = todayMinutes >= sleepGoal * 60;
-  }
+  }, []);
 
   const averageSleep = getAverageSleepDuration(sleepLogs);
 
-  // *FIXED*: Get latest log's bedtime and wake time
-  let displayBedtime = "--:--";
-  let displayWakeTime = "--:--";
-  
-  if (todayLog) {
-    displayBedtime = todayLog.start_time
-      ? formatTime12h(todayLog.start_time)
-      : "--:--";
-    displayWakeTime = todayLog.end_time
-      ? formatTime12h(todayLog.end_time)
-      : "--:--";
-  }
-
-  // Helper to get week days in order Mon-Sun
-  const weekDays = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
-  const weekDateObjs = [];
-  const today = new Date();
-  const monday = new Date(today);
-  // Get the most recent Monday (if today is Monday, use today)
-  const dayOfWeek = today.getDay();
-  const daysToSubtract = dayOfWeek === 0 ? 6 : dayOfWeek - 1; // Sunday = 0, so subtract 6 to get Monday
-  monday.setDate(today.getDate() - daysToSubtract);
-  for (let i = 0; i < 7; i++) {
-    const d = new Date(monday);
-    d.setDate(monday.getDate() + i);
-    weekDateObjs.push(d);
-  }
-
-  // Map weekData by date string for lookup
-  const weekLogMap = {};
-  sleepLogs.forEach((log) => {
-    weekLogMap[getDateOnly(log.date)] = log; 
-  });
-
-
-  // Weekly consistency: percentage of days that met sleep goal
-  const weekTotalMins = weekDateObjs.reduce((sum, d) => {
-    const key = d.toISOString().slice(0, 10);
-    const log = weekLogMap[key];
-    const mins = log && log.duration ? parseIntervalToMinutes(log.duration) : 0;
-    return sum + mins;
-  }, 0);
-  
-  // Calculate consistency as percentage of days that met sleep goal
-  const daysWithLogs = weekDateObjs.filter(d => {
-    const key = d.toISOString().slice(0, 10);
-    const log = weekLogMap[key];
-    const hasLog = log && log.duration && parseIntervalToMinutes(log.duration) > 0;
-    return hasLog;
-  }).length;
-  
-  const daysMetGoal = weekDateObjs.filter(d => {
-    const key = d.toISOString().slice(0, 10);
-    const log = weekLogMap[key];
-    if (!log || !log.duration) return false;
-    const mins = parseIntervalToMinutes(log.duration);
-    const goalMins = sleepGoal * 60;
-    const metGoal = mins >= (goalMins * 0.7); // Lowered to 70% of goal to be more reasonable
-    return metGoal;
-  }).length;
-  
-  // Calculate consistency as average percentage of goal achieved (same as MainDashboard)
-  let weekConsistencyPercent = 0;
-  
-  if (daysWithLogs === 0) {
-    weekConsistencyPercent = 0;
-  } else {
-    // Calculate average percentage of goal achieved across all days with logs
-    const totalGoalPercent = weekDateObjs.reduce((sum, d) => {
-      const key = d.toISOString().slice(0, 10);
-      const log = weekLogMap[key];
-      if (!log || !log.duration) return sum;
-      
-      const mins = parseIntervalToMinutes(log.duration);
-      const goalMins = sleepGoal * 60;
-      const dayPercent = goalMins > 0 ? Math.min(100, Math.round((mins / goalMins) * 100)) : 0;
-      return sum + dayPercent;
-    }, 0);
-    
-    weekConsistencyPercent = Math.round(totalGoalPercent / daysWithLogs);
-  }
-  
-  // Ensure the percentage is valid
-  const validConsistencyPercent = isNaN(weekConsistencyPercent) ? 0 : Math.max(0, Math.min(100, weekConsistencyPercent));
-
-
   return (
-    <SafeAreaView style={styles.container} edges={['top']}>
-      {/* Header */}
-      <View style={styles.header}>
-        <TouchableOpacity style={styles.backButton} onPress={() => navigation.goBack()}>
-          <Ionicons name="chevron-back" size={24} color="#333" />
-        </TouchableOpacity>
-        <Text style={styles.headerTitle}>Sleep Tracker</Text>
-        <View style={styles.placeholder} />
-      </View>
+    <View style={styles.container}>
+      <SafeAreaView style={styles.safeArea} edges={['top']}>
+        {/* Header */}
+        <View style={styles.header}>
+          <TouchableOpacity style={styles.backButton} onPress={() => navigation.goBack()}>
+            <Ionicons name="chevron-back" size={24} color="#333" />
+          </TouchableOpacity>
+          <Text style={styles.headerTitle}>Sleep Tracker</Text>
+          <View style={styles.placeholder} />
+        </View>
 
-      <ScrollView
-        contentContainerStyle={{ padding: 20, paddingBottom: 140 }}
-        showsVerticalScrollIndicator={false}
-      >
-        {/* Last Night's Sleep Card */}
-        <View
-          style={{
-            backgroundColor: "#FFFFFF",
-            borderRadius: 20,
-            padding: 10,
-            marginBottom: 20,
-            shadowColor: "#000",
-            shadowOpacity: 0.08,
-            shadowRadius: 16,
-            shadowOffset: { width: 0, height: 4 },
-            elevation: 5,
-            flexDirection: "row",
-            alignItems: "center",
-          }}
+        <ScrollView
+          style={styles.scrollViewStyle}
+          contentContainerStyle={[
+            styles.scrollContent,
+            { paddingBottom: insets.bottom + 150 }
+          ]}
+          showsVerticalScrollIndicator={false}
+          bounces={true}
+          scrollEventThrottle={16}
         >
-          <View
-            style={{
-              width: 64,
-              height: 64,
-              borderRadius: 32,
-              backgroundColor: "#F3E8FF",
-              alignItems: "center",
-              justifyContent: "center",
-              marginRight: 18,
-            }}
-          >
-            <Ionicons name="moon-outline" size={32} color="#8B5CF6" />
+          {/* Last Night's Sleep Card */}
+          <View style={styles.lastNightCard}>
+            <View style={styles.sleepIconContainer}>
+              <Ionicons name="moon-outline" size={32} color="#8B5CF6" />
+            </View>
+            <View style={{ flex: 1 }}>
+              <Text style={styles.lastNightLabel}>
+                Last Night's Sleep
+              </Text>
+              <Text style={styles.lastNightDuration}>
+                {todayDuration}
+              </Text>
+              <Text style={styles.lastNightComparison}>
+                {(() => {
+                  if (!todayLog || !todayLog.duration) return "No data";
+                  
+                  const yesterday = new Date();
+                  yesterday.setDate(yesterday.getDate() - 1);
+                  const yesterdayStr = yesterday.toISOString().slice(0, 10);
+                  const yesterdayLog = sleepLogs.find(
+                    (l) => getDateOnly(l.date) === yesterdayStr && l.user_id === realUserId
+                  );
+                  
+                  if (!yesterdayLog || !yesterdayLog.duration) return "No data logged yesterday";
+                  
+                  const todayMins = parseIntervalToMinutes(todayLog.duration);
+                  const yesterdayMins = parseIntervalToMinutes(yesterdayLog.duration);
+                  
+                  if (yesterdayMins === 0) return "No yesterday data";
+                  
+                  const percentage = Math.round(((todayMins - yesterdayMins) / yesterdayMins) * 100);
+                  const sign = percentage >= 0 ? "+" : "";
+                  
+                  return `${sign}${percentage}% vs yesterday`;
+                })()}
+              </Text>
+            </View>
           </View>
-          <View style={{ flex: 1 }}>
-            <Text 
-              style={{ 
-                color: "#9CA3AF", 
-                fontSize: 15, 
-                
-                fontWeight: "500",
-                letterSpacing: 0.3,
-              }}
-            >
-              Last Night's Sleep
-            </Text>
-            <Text
-              style={{ 
-                fontWeight: "700", 
-                fontSize: 25, 
-                color: "#1F2937",
-                letterSpacing: -1,
-              }}
-            >
-              {todayDuration}
-            </Text>
-            <Text 
-              style={{ 
-                color: "#9CA3AF", 
-                fontSize: 14,
-                fontWeight: "500",
-              }}
-            >
-              {(() => {
-                if (!todayLog || !todayLog.duration) return "No data";
-                
-                // Get yesterday's log
-                const yesterday = new Date();
-                yesterday.setDate(yesterday.getDate() - 1);
-                const yesterdayStr = yesterday.toISOString().slice(0, 10);
-                const yesterdayLog = sleepLogs.find(
-                  (l) => getDateOnly(l.date) === yesterdayStr && l.user_id === realUserId
+
+          {/* Weekly Chart */}
+          <Text style={styles.sectionTitle}>
+            Weekly Chart
+          </Text>
+          <View style={styles.weeklyCard}>
+            <View style={styles.chartContainer}>
+              {["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"].map((d, idx) => {
+                const dayDate = weekDateObjs[idx];
+                const key = dayDate.toISOString().slice(0, 10);
+                const log = weekLogMap[key];
+                const mins =
+                  log && log.duration ? parseIntervalToMinutes(log.duration) : 0;
+                const progress =
+                  sleepGoal > 0 ? Math.min(1, mins / (sleepGoal * 60)) : 0;
+                const filled = 120 * progress;
+
+                return (
+                  <View key={key} style={styles.barContainer}>
+                    <View style={styles.barTrack}>
+                      {filled > 0 ? (
+                        <LinearGradient
+                          colors={["#C4B5FD", "#A7F3D0"]}
+                          start={{ x: 0, y: 0 }}
+                          end={{ x: 0, y: 1 }}
+                          style={{ width: "100%", height: filled }}
+                        />
+                      ) : (
+                        <View style={styles.emptyBar} />
+                      )}
+                    </View>
+                    <Text style={styles.dayLabel}>
+                      {d}
+                    </Text>
+                  </View>
                 );
-                
-                if (!yesterdayLog || !yesterdayLog.duration) return "No data loged yesterday";
-                
-                // Calculate percentages
-                const todayMins = parseIntervalToMinutes(todayLog.duration);
-                const yesterdayMins = parseIntervalToMinutes(yesterdayLog.duration);
-                
-                if (yesterdayMins === 0) return "No yesterday data";
-                
-                const percentage = Math.round(((todayMins - yesterdayMins) / yesterdayMins) * 100);
-                const sign = percentage >= 0 ? "+" : "";
-                
-                return `${sign}${percentage}% vs yesterday`;
+              })}
+            </View>
+            {weekTotalMins === 0 && (
+              <View style={styles.noDataMessage}>
+                <Text style={styles.noDataText}>
+                  No sleep data for this week yet. Set your schedule and log your sleep!
+                </Text>
+              </View>
+            )}
+          </View>
+
+          {/* Sleep Goal Card */}
+          <View style={styles.sleepGoalMainCard}>
+            <TouchableOpacity
+              onPress={() => {
+                setTempSleepGoal(sleepGoal);
+                setShowSleepGoalModal(true);
+              }}
+              style={styles.goalSection}
+              activeOpacity={0.7}
+            >
+              <View style={styles.goalHeader}>
+                <LinearGradient
+                  colors={["#8B5CF6", "#A78BFA"]}
+                  style={styles.goalIcon}
+                >
+                  <Text style={styles.goalEmoji}>💤</Text>
+                </LinearGradient>
+                <View>
+                  <Text style={styles.goalTitle}>
+                    Set Sleep Goal
+                  </Text>
+                  <Text style={styles.goalSubtitle}>
+                    Personalize your target
+                  </Text>
+                </View>
+              </View>
+              <View style={styles.goalBadge}>
+                <Text style={styles.goalBadgeText}>
+                  {todayPercent}% of {sleepGoal}h
+                </Text>
+              </View>
+            </TouchableOpacity>
+
+            {/* Schedule Section */}
+            <View style={styles.scheduleSection}>
+              <View style={styles.scheduleHeader}>
+                <Text style={styles.scheduleTitle}>Set your schedule</Text>
+                {todayHasSleepLog && (
+                  <TouchableOpacity 
+                    onPress={handleEditSchedule}
+                    style={styles.editButton}
+                  >
+                    <Text style={styles.editButtonText}>
+                      {isEditingSchedule ? "Done" : "Edit"}
+                    </Text>
+                  </TouchableOpacity>
+                )}
+              </View>
+              
+              <View style={styles.scheduleContainer}>
+                {/* Bedtime Button */}
+                <TouchableOpacity
+                  onPress={handleBedtimeClick}
+                  style={[
+                    styles.scheduleButton, 
+                    styles.bedtimeButton,
+                    !buttonStates.canClickBedtime && styles.scheduleButtonDisabled
+                  ]}
+                  activeOpacity={buttonStates.canClickBedtime ? 0.7 : 1}
+                >
+                  <View style={styles.scheduleButtonHeader}>
+                    <Ionicons 
+                      name="bed" 
+                      size={16} 
+                      color="white" 
+                      style={styles.scheduleButtonIcon} 
+                    />
+                    <Text style={styles.scheduleButtonLabel}>Bedtime</Text>
+                  </View>
+                  <Text style={styles.scheduleButtonTime}>
+                    {formatTime12h(scheduledBedtime)}
+                  </Text>
+                </TouchableOpacity>
+
+                {/* Wake up Button */}
+                <TouchableOpacity
+                  onPress={handleWakeupClick}
+                  style={[
+                    styles.scheduleButton, 
+                    styles.wakeupButton,
+                    !buttonStates.canClickWakeup && styles.scheduleButtonDisabled
+                  ]}
+                  activeOpacity={buttonStates.canClickWakeup ? 0.7 : 1}
+                >
+                  <View style={styles.scheduleButtonHeader}>
+                    <Ionicons 
+                      name="alarm" 
+                      size={16} 
+                      color="white" 
+                      style={styles.scheduleButtonIcon} 
+                    />
+                    <Text style={styles.scheduleButtonLabel}>Wake up</Text>
+                  </View>
+                  <Text style={styles.scheduleButtonTime}>
+                    {formatTime12h(scheduledWakeup)}
+                  </Text>
+                </TouchableOpacity>
+              </View>
+            </View>
+          </View>
+
+          {/* Log Sleep Button */}
+          <TouchableOpacity 
+            style={[
+              styles.logSleepButton,
+              !buttonStates.logButtonEnabled && styles.logSleepButtonDisabled,
+              buttonStates.logButtonEnabled && styles.logSleepButtonEnabled
+            ]}
+            onPress={handleLogSleep}
+            disabled={!buttonStates.canClickLog}
+          >
+            <Text style={[
+              styles.logSleepButtonText,
+              !buttonStates.logButtonEnabled && styles.logSleepButtonTextDisabled,
+              buttonStates.logButtonEnabled && styles.logSleepButtonTextEnabled
+            ]}>
+              {todayHasSleepLog && isEditingSchedule ? "Update Sleep Log" : "Log Your Sleep"}
+            </Text>
+          </TouchableOpacity>
+
+          {/* Status Message */}
+          <View style={styles.statusMessage}>
+            <Text style={styles.statusText}>
+              {(() => {
+                if (!scheduledBedtime || !scheduledWakeup) {
+                  return "Set your bedtime and wake up time above to enable sleep logging";
+                } else if (todayHasSleepLog && !isEditingSchedule) {
+                  return "Sleep already logged for today. Tap 'Edit' to make changes.";
+                } else if (buttonStates.logButtonEnabled) {
+                  return "Ready to log! Tap the button above.";
+                } else {
+                  return "Set both bedtime and wake up time to enable logging";
+                }
               })()}
             </Text>
           </View>
-        </View>
 
-        {/* Weekly Chart */}
-        <Text
-          style={{
-            fontWeight: "800",
-            fontSize: 20,
-            color: "#111827",
-            marginBottom: 10,
-            marginLeft: 4,
-          }}
-        >
-          Weekly Chart
-        </Text>
-        <View
-          style={{
-            backgroundColor: "#fff",
-            borderRadius: 16,
-            padding: 16,
-            marginBottom: 20,
-            shadowColor: "#000",
-            shadowOpacity: 0.05,
-            shadowRadius: 8,
-          }}
-        >
-          <View
-            style={{
-              flexDirection: "row",
-              justifyContent: "space-between",
-              alignItems: "flex-end",
-              height: 140,
-            }}
-          >
-            {["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"].map((d, idx) => {
-              const dayDate = weekDateObjs[idx];
-              const key = dayDate.toISOString().slice(0, 10);
-              const log = weekLogMap[key];
-              const mins =
-                log && log.duration ? parseIntervalToMinutes(log.duration) : 0;
-              const progress =
-                sleepGoal > 0 ? Math.min(1, mins / (sleepGoal * 60)) : 0;
-              const filled = 120 * progress;
-              const hours = Math.floor(mins / 60);
-              const minutes = mins % 60;
-              const timeDisplay =
-                mins > 0
-                  ? `${hours}h${minutes > 0 ? ` ${minutes}m` : ""}`
-                  : "--";
-
-              return (
-                <View key={key} style={{ alignItems: "center", width: 32 }}>
-                  <View
-                    style={{
-                      width: 22,
-                      height: 120,
-                      borderRadius: 12,
-                      backgroundColor: "#E5E7EB",
-                      overflow: "hidden",
-                      justifyContent: "flex-end",
-                      position: "relative",
-                    }}
-                  >
-                    {filled > 0 ? (
-                      <LinearGradient
-                        colors={["#C4B5FD", "#A7F3D0"]}
-                        start={{ x: 0, y: 0 }}
-                        end={{ x: 0, y: 1 }}
-                        style={{ width: "100%", height: filled }}
-                      />
-                    ) : (
-                      <View
-                        style={{
-                          width: "100%",
-                          height: 120,
-                          backgroundColor: "#F3F4F6",
-                          justifyContent: "center",
-                          alignItems: "center",
-                        }}
-                      ></View>
-                    )}
-          </View>
-                  <Text
-                    style={{ color: "#6B7280", fontSize: 12, marginTop: 6 }}
-                  >
-                    {d}
-                  </Text>
-          </View>
-              );
-            })}
-          </View>
-          {weekTotalMins === 0 && (
-            <View style={{ alignItems: "center", marginTop: 10, padding: 10 }}>
-              <Text
-                style={{ color: "#9CA3AF", fontSize: 14, textAlign: "center" }}
-              >
-                No sleep data for this week yet. Log your sleep to see the
-                chart!
-              </Text>
+          {/* Tip card */}
+          {/* <View style={styles.tipCard}>
+            <Text style={styles.tipText}>
+              You slept <Text style={styles.tipHighlight}>{averageSleep}</Text>{" "}
+              on average this week. Try keeping your bedtime consistent for better
+              results.
+            </Text>
+          </View> */}
+          
+          {/* Sleep Insights Section */}
+          {sleepInsights.length > 0 && (
+            <View style={styles.insightsCard}>
+              <Text style={styles.insightsTitle}>💡 Sleep Insights</Text>
+              {sleepInsights.map((insight, index) => (
+                <View key={index} style={[
+                  styles.insightItem,
+                  insight.priority === 'high' && styles.highPriorityInsight
+                ]}>
+                  <Text style={styles.insightIcon}>{insight.icon}</Text>
+                  <View style={styles.insightContent}>
+                    <Text style={styles.insightTitle}>{insight.title}</Text>
+                    <Text style={styles.insightMessage}>{insight.message}</Text>
+                    <Text style={styles.insightAction}>{insight.action}</Text>
+                  </View>
+                </View>
+              ))}
             </View>
           )}
-        </View>
+          
+          {/* Sleep Recommendations Section */}
+          {sleepRecommendations.length > 0 && (
+            <View style={styles.recommendationsCard}>
+              <Text style={styles.recommendationsTitle}>🎯 Personalized Recommendations</Text>
+              {sleepRecommendations.map((rec, index) => (
+                <View key={index} style={styles.recommendationItem}>
+                  <Text style={styles.recommendationMessage}>{rec.message}</Text>
+                  <Text style={styles.recommendationAction}>{rec.action}</Text>
+                </View>
+              ))}
+            </View>
+          )}
 
-        {/* Sleep Log header */}
-        <View
-          style={{
-            flexDirection: "row",
-            alignItems: "center",
-            justifyContent: "space-between",
-            marginBottom: 10,
-          }}
-        >
-          <Text
-            style={{
-              fontWeight: "800",
-              fontSize: 18,
-              color: "#111827",
-              marginLeft: 4,
-            }}
-          >
-            Sleep Log
-          </Text>
-          <TouchableOpacity
+          {/* Sleep History Section */}
+          <View style={styles.historyHeader}>
+            <Text style={styles.historyTitle}>
+              Sleep History
+            </Text>
+            <TouchableOpacity
               onPress={() => setShowAllLogs(!showAllLogs)}
-              style={{
-                backgroundColor: "#F3F4F6",
-                paddingHorizontal: 12,
-                paddingVertical: 8,
-                borderRadius: 16,
-              }}
+              style={styles.viewAllButton}
             >
-              <Text style={{ color: "#111827", fontWeight: "700" }}>
+              <Text style={styles.viewAllButtonText}>
                 {showAllLogs ? "Show recent" : "View all"}
               </Text>
-          </TouchableOpacity>
-        </View>
+            </TouchableOpacity>
+          </View>
 
-        {/* Sleep Log cards */}
-        {(() => {
-          const moodToEmoji = (m) => {
-            if (!m) return "😴";
-            const map = {
-              Relaxed: "😌",
-              Neutral: "🙂",
-              Tired: "🥱",
-              Stressed: "😫",
+          {/* FIXED: Sleep Log cards with memoized rendering */}
+          {useMemo(() => {
+            const moodToEmoji = (m) => {
+              if (!m) return "😴";
+              const map = {
+                Relaxed: "😌",
+                Neutral: "🙂",
+                Tired: "🥱",
+                Stressed: "😫",
+              };
+              return map[m] || "😴";
             };
-            return map[m] || "😴";
-          };
 
-          const formatDateLabel = (dateStr) => {
-            const date = new Date(dateStr);
-            const today = new Date();
+            const formatDateLabel = (dateStr) => {
+              const date = new Date(dateStr);
+              const today = new Date();
 
-            // Only show "Today" if the log is from today
-            if (date.toDateString() === today.toDateString()) {
-              return "Today";
-            } else {
-              return date.toLocaleDateString("en-US", {
-                weekday: "short",
-                month: "short",
-                day: "numeric",
-              });
-            }
-          };
+              if (date.toDateString() === today.toDateString()) {
+                return "Today";
+              } else {
+                return date.toLocaleDateString("en-US", {
+                  weekday: "short",
+                  month: "short",
+                  day: "numeric",
+                });
+              }
+            };
 
-          const Item = ({ log }) => {
-            return (
-              <View
-                style={{
-                  backgroundColor: "#fff",
-                  borderRadius: 16,
-                  padding: 16,
-                  marginBottom: 12,
-                  shadowColor: "#000",
-                  shadowOpacity: 0.05,
-                  shadowRadius: 8,
-                }}
-              >
-                <View
-                  style={{
-                    flexDirection: "row",
-                    alignItems: "center",
-                    justifyContent: "space-between",
+            const LogItem = ({ log }) => {
+              return (
+                <TouchableOpacity
+                  style={styles.logCard}
+                  onPress={() => {
+                    setScheduledBedtime(log.start_time);
+                    setScheduledWakeup(log.end_time);
+                    setQuality(log.quality || "Good");
+                    setMood(log.mood || "Relaxed");
+                    setIsEditingSchedule(true);
                   }}
                 >
-                  <View>
-                    <Text
-                      style={{
-                        fontWeight: "700",
-                        color: "#111827",
-                        fontSize: 16,
-                      }}
-                    >
-                      {formatDateLabel(log.date)}
-                    </Text>
-                    <Text style={{ color: "#6B7280", marginTop: 4 }}>
-                      {`${formatTime12h(log.start_time)} - ${formatTime12h(
-                        log.end_time
-                      )}`}
+                  <View style={styles.logCardContent}>
+                    <View>
+                      <Text style={styles.logDate}>
+                        {formatDateLabel(log.date)}
+                      </Text>
+                      <Text style={styles.logTime}>
+                        {`${formatTime12h(log.start_time)} - ${formatTime12h(
+                          log.end_time
+                        )}`}
+                      </Text>
+                    </View>
+                    <Text style={styles.logDuration}>
+                      {parseIntervalToDisplay(log.duration)}{" "}
+                      {moodToEmoji(log.mood)}
                     </Text>
                   </View>
-                  <Text
-                    style={{
-                      fontWeight: "800",
-                      color: "#7C3AED",
-                      fontSize: 16,
-                    }}
-                  >
-                    {parseIntervalToDisplay(log.duration)}{" "}
-                    {moodToEmoji(log.mood)}
+                </TouchableOpacity>
+              );
+            };
+
+            // FIXED: Remove console.log to prevent re-render loop
+            
+            if (sleepLogs.length === 0) {
+              return (
+                <View style={styles.noLogsMessage}>
+                  <Text style={styles.noLogsText}>
+                    No sleep logs found. Set your schedule and log your first sleep session above!
                   </Text>
                 </View>
-              </View>
-            );
-          };
+              );
+            }
 
-          if (!showAllLogs) {
-            // Show last 3 actual sleep logs
-            const recentLogs = sleepLogs.slice(0, 3);
-            return (
-              <>
-                {recentLogs.map((log, idx) => (
-                  <Item key={log.id} log={log} />
-                ))}
-              </>
-            );
-          } else {
-            // Show hierarchical month-based view
-            const groupedMonths = groupLogsByMonth(sleepLogs);
+            if (!showAllLogs) {
+              const recentLogs = sleepLogs.slice(0, 3);
+              return (
+                <>
+                  {recentLogs.map((log, idx) => (
+                    <LogItem key={log.id} log={log} />
+                  ))}
+                </>
+              );
+            } else {
+              const groupedMonths = groupLogsByMonth(sleepLogs);
 
-            return (
-              <>
-                {groupedMonths.map((month, monthIndex) => {
-                  const isExpanded = expandedMonths.has(month.monthKey);
+              return (
+                <>
+                  {groupedMonths.map((month, monthIndex) => {
+                    const isExpanded = expandedMonths.has(month.monthKey);
 
-                  return (
-                    <View key={month.monthKey}>
-                      {/* Current month is always shown */}
-                      {month.isCurrentMonth && (
-                        <>
-                          <Text
-                            style={{
-                              fontWeight: "800",
-                              fontSize: 18,
-                              color: "#111827",
-                              marginBottom: 12,
-                              marginTop: 8,
-                            }}
-                          >
-                            {month.monthName}
-                          </Text>
-                          {month.logs.map((log) => (
-                            <Item key={log.id} log={log} />
-                          ))}
-                        </>
-                      )}
-
-                      {/* Previous months with expand/collapse */}
-                      {!month.isCurrentMonth && (
-                        <>
-                          {/* Month header with expand/collapse button */}
-                          <TouchableOpacity
-                            onPress={() => toggleMonthExpansion(month.monthKey)}
-                            style={{
-                              flexDirection: "row",
-                              alignItems: "center",
-                              justifyContent: "space-between",
-                              backgroundColor: "#F8F9FA",
-                              borderRadius: 12,
-                              padding: 12,
-                              marginBottom: 8,
-                              marginTop: 8,
-                            }}
-                          >
-                            <Text
-                              style={{
-                                fontWeight: "700",
-                                fontSize: 16,
-                                color: "#111827",
-                              }}
-                            >
+                    return (
+                      <View key={month.monthKey}>
+                        {month.isCurrentMonth && (
+                          <>
+                            <Text style={styles.monthTitle}>
                               {month.monthName}
                             </Text>
-                            <View
-                              style={{
-                                flexDirection: "row",
-                                alignItems: "center",
-                              }}
+                            {month.logs.map((log) => (
+                              <LogItem key={log.id} log={log} />
+                            ))}
+                          </>
+                        )}
+
+                        {!month.isCurrentMonth && (
+                          <>
+                            <TouchableOpacity
+                              onPress={() => toggleMonthExpansion(month.monthKey)}
+                              style={styles.monthHeader}
                             >
-                              <Text
-                                style={{
-                                  color: "#6B7280",
-                                  fontSize: 14,
-                                  marginRight: 8,
-                                }}
-                              >
-                                {month.logs.length} log
-                                {month.logs.length !== 1 ? "s" : ""}
+                              <Text style={styles.monthHeaderText}>
+                                {month.monthName}
                               </Text>
-                              <Text
-                                style={{
-                                  fontSize: 18,
-                                  color: "#6B7280",
-                                  transform: [
-                                    { rotate: isExpanded ? "180deg" : "0deg" },
-                                  ],
-                                }}
-                              >
-                                ⌄
-                              </Text>
-                            </View>
-                          </TouchableOpacity>
+                              <View style={styles.monthHeaderRight}>
+                                <Text style={styles.monthLogCount}>
+                                  {month.logs.length} log
+                                  {month.logs.length !== 1 ? "s" : ""}
+                                </Text>
+                                <Text style={[
+                                  styles.expandIcon,
+                                  { transform: [{ rotate: isExpanded ? "180deg" : "0deg" }] }
+                                ]}>
+                                  ⌄
+                                </Text>
+                              </View>
+                            </TouchableOpacity>
 
-                          {/* Expanded month logs */}
-                          {isExpanded && (
-                            <>
-                              {month.logs.map((log) => (
-                                <Item key={log.id} log={log} />
-                              ))}
-                            </>
-                          )}
-                        </>
-                      )}
-                    </View>
-                  );
-                })}
-              </>
-            );
-          }
-        })()}
-
-        {/* Tip card */}
-        <View
-          style={{
-            backgroundColor: "#F3E8FF",
-            borderRadius: 16,
-            padding: 16,
-            marginTop: 8,
-            marginBottom: 10,
-          }}
-        >
-          <Text style={{ color: "#6B21A8" }}>
-            You slept <Text style={{ fontWeight: "800" }}>{averageSleep}</Text>{" "}
-            on average this week. Try keeping your bedtime consistent for better
-            results.
-          </Text>
-        </View>
-
-        {/* Time Pickers remain below */}
-        {showFromPicker && (
-          <DateTimePicker
-            value={
-              startTime ? new Date(`1970-01-01T${startTime}:00`) : new Date()
-            }
-            mode="time"
-            is24Hour={false}
-            display="default"
-            onChange={(event, date) => {
-              setShowFromPicker(false);
-              if (date) {
-                const h = date.getHours().toString().padStart(2, "0");
-                const m = date.getMinutes().toString().padStart(2, "0");
-                setStartTime(`${h}:${m}`);
-              }
-            }}
-          />
-        )}
-        {showToPicker && (
-          <DateTimePicker
-            value={endTime ? new Date(`1970-01-01T${endTime}:00`) : new Date()}
-            mode="time"
-            is24Hour={false}
-            display="default"
-            onChange={(event, date) => {
-              setShowToPicker(false);
-              if (date) {
-                const h = date.getHours().toString().padStart(2, "0");
-                const m = date.getMinutes().toString().padStart(2, "0");
-                setEndTime(`${h}:${m}`);
-              }
-            }}
-          />
-        )}
-
-        {/* Sleep Goal Card */}
-        <View
-          style={{
-            backgroundColor: "#FFFFFF",
-            borderRadius: 20,
-            padding: 18,
-            marginBottom: 18,
-            shadowColor: "#1F2937",
-            shadowOpacity: 0.06,
-            shadowRadius: 12,
-            shadowOffset: { width: 0, height: 4 },
-            elevation: 6,
-          borderWidth: 1,
-            borderColor: "rgba(255, 255, 255, 0.2)",
-          }}
-        >
-          {/* Sleep Goal Card */}
-          <TouchableOpacity
-            onPress={() => {
-              setTempSleepGoal(sleepGoal);
-              setShowSleepGoalModal(true);
-            }}
-            style={{
-              backgroundColor: "#FAFAFB",
-              borderRadius: 16,
-              paddingVertical: 14,
-              paddingHorizontal: 16,
-              flexDirection: "row",
-              alignItems: "center",
-              justifyContent: "space-between",
-              borderWidth: 1,
-              borderColor: "#E2E8F0",
-              shadowColor: "#000",
-              shadowOpacity: 0.03,
-              shadowRadius: 6,
-              shadowOffset: { width: 0, height: 2 },
-              marginBottom: 16,
-            }}
-            activeOpacity={0.7}
-          >
-            <View style={{ flexDirection: "row", alignItems: "center" }}>
-              <LinearGradient
-                colors={["#8B5CF6", "#A78BFA"]}
-                style={{
-                  width: 36,
-                  height: 36,
-                  borderRadius: 18,
-                  alignItems: "center",
-                  justifyContent: "center",
-                  marginRight: 12,
-                }}
-              >
-                <Text style={{ fontSize: 18 }}>💤</Text>
-              </LinearGradient>
-              <View>
-                <Text
-                  style={{
-                    fontSize: 15,
-                    fontWeight: "600",
-                    color: "#1E293B",
-                    marginBottom: 2,
-                  }}
-                >
-                  Set Sleep Goal
-                </Text>
-                <Text
-                  style={{
-                    fontSize: 12, 
-                    color: "#64748B",
-                  }}
-                >
-                  Personalize your target
-                </Text>
-              </View>
-            </View>
-            <View
-              style={{
-                paddingHorizontal: 12,
-                paddingVertical: 6,
-                borderRadius: 12,
-                backgroundColor: "#F0F9FF",
-                borderWidth: 1,
-                borderColor: "#E0F2FE",
-              }}
-            >
-              <Text
-                style={{
-                  fontSize: 14,
-                  fontWeight: "700",
-                  color: "#0369A1",
-                }}
-              >
-                {todayPercent}% of {sleepGoal}h
-              </Text>
-            </View>
-          </TouchableOpacity>
-
-          {/* Reminder Cards */}
-          <View style={{ gap: 16 }}>
-            {/* Bedtime Reminder */}
-            <TouchableOpacity
-              onPress={() => setShowBedtimeReminderPicker(true)}
-              style={{
-                backgroundColor: "#FAFAFB",
-                borderRadius: 16,
-                paddingVertical: 14,
-                paddingHorizontal: 16,
-                flexDirection: "row",
-                alignItems: "center",
-                justifyContent: "space-between",
-                borderWidth: 1,
-                borderColor: "#E2E8F0",
-                shadowColor: "#000",
-                shadowOpacity: 0.03,
-                shadowRadius: 6,
-                shadowOffset: { width: 0, height: 2 },
-              }}
-              activeOpacity={0.7}
-            >
-              <View style={{ flexDirection: "row", alignItems: "center" }}>
-                <LinearGradient
-                  colors={["#4F46E5", "#7C3AED"]}
-                  style={{
-                    width: 36,
-                    height: 36,
-                    borderRadius: 18,
-                    alignItems: "center",
-                    justifyContent: "center",
-                    marginRight: 12,
-                  }}
-                >
-                  <Text style={{ fontSize: 18 }}>🌙</Text>
-                </LinearGradient>
-                <View>
-                  <Text
-                    style={{
-                      fontSize: 15,
-                      fontWeight: "600",
-                      color: "#1E293B",
-                    marginBottom: 2,
-                    }}
-                  >
-                    Bedtime Reminder
-                  </Text>
-                  <Text
-                    style={{
-                    fontSize: 12, 
-                      color: "#64748B",
-                    }}
-                  >
-                    Wind down notification
-                  </Text>
-                </View>
-              </View>
-              <View
-                style={{
-                  paddingHorizontal: 12,
-                  paddingVertical: 6,
-                  borderRadius: 12,
-                  backgroundColor: "#F0F9FF",
-                borderWidth: 1,
-                  borderColor: "#E0F2FE",
-                }}
-              >
-                <Text
-                  style={{
-                    fontSize: 14,
-                    fontWeight: "700",
-                    color: "#0369A1",
-                  }}
-                >
-                  {bedtimeReminder}
-                </Text>
-              </View>
-            </TouchableOpacity>
-
-            {/* Wake-up Alarm */}
-            <TouchableOpacity
-              onPress={() => setShowWakeReminderPicker(true)}
-              style={{
-                backgroundColor: "#FAFAFB",
-                borderRadius: 24,
-                paddingVertical: 18,
-                paddingHorizontal: 20,
-                flexDirection: "row",
-                alignItems: "center",
-                justifyContent: "space-between",
-                borderWidth: 1,
-                borderColor: "#E2E8F0",
-                shadowColor: "#000",
-                shadowOpacity: 0.03,
-                shadowRadius: 8,
-                shadowOffset: { width: 0, height: 2 },
-              }}
-              activeOpacity={0.7}
-            >
-              <View style={{ flexDirection: "row", alignItems: "center" }}>
-                <LinearGradient
-                  colors={["#F59E0B", "#EAB308"]}
-                  style={{
-                    width: 44,
-                    height: 44,
-                    borderRadius: 22,
-                    alignItems: "center",
-                    justifyContent: "center",
-                    marginRight: 14,
-                  }}
-                >
-                  <Text style={{ fontSize: 20 }}>⏰</Text>
-                </LinearGradient>
-                <View>
-                  <Text
-                    style={{
-                    fontSize: 16, 
-                      fontWeight: "600",
-                      color: "#1E293B",
-                    marginBottom: 2,
-                    }}
-                  >
-                    Wake-up Alarm
-                  </Text>
-                  <Text
-                    style={{
-                    fontSize: 12, 
-                      color: "#64748B",
-                    }}
-                  >
-                    Start your day right
-                  </Text>
-                </View>
-              </View>
-              <View
-                style={{
-                paddingHorizontal: 16,
-                paddingVertical: 8,
-                borderRadius: 16,
-                  backgroundColor: "#FEF3C7",
-                borderWidth: 1,
-                  borderColor: "#FDE68A",
-                }}
-              >
-                <Text
-                  style={{
-                  fontSize: 15, 
-                    fontWeight: "700",
-                    color: "#92400E",
-                  }}
-                >
-                  {wakeReminder}
-                </Text>
-              </View>
-            </TouchableOpacity>
-          </View>
-        </View>
-
-
-        {/* Log Sleep Button */}
-        <TouchableOpacity 
-          style={{ 
-            backgroundColor: "#4F46E5",
-            borderRadius: 16, 
-            paddingVertical: 16, 
-            alignItems: "center",
-          }} 
-          onPress={() => {
-            const existingLog = sleepLogs.find(
-              (l) =>
-                getDateOnly(l.date) === todayStr && l.user_id === realUserId
-            );
-            if (existingLog) {
-              setShowAlreadyLoggedModal(true);
-            } else {
-              setEditMode(false);
-              setEditingLogId(null);
-              setShowLogModal(true);
-            }
-          }}
-        >
-          <Text style={{ color: "#fff", fontWeight: "bold", fontSize: 18 }}>
-            Log Your Sleep
-          </Text>
-        </TouchableOpacity>
-
-        {/* Already Logged Modal */}
-        <Modal
-          visible={showAlreadyLoggedModal}
-          animationType="fade"
-          transparent
-        >
-          <View
-            style={{
-              flex: 1,
-              backgroundColor: "rgba(0,0,0,0.2)",
-              justifyContent: "center",
-              alignItems: "center",
-            }}
-          >
-            <View
-              style={{
-                backgroundColor: "#fff",
-                borderRadius: 20,
-                padding: 24,
-                width: "85%",
-              }}
-            >
-              <Text
-                style={{
-                  fontWeight: "bold",
-                  fontSize: 20,
-                  marginBottom: 18,
-                  textAlign: "center",
-                }}
-              >
-                Sleep already logged
-              </Text>
-              <Text
-                style={{
-                  fontSize: 16,
-                  color: "#374151",
-                  marginBottom: 24,
-                  textAlign: "center",
-                }}
-              >
-                You have already logged your sleep for today.
-              </Text>
-              <View
-                style={{
-                  flexDirection: "row",
-                  justifyContent: "space-between",
-                }}
-              >
-                <TouchableOpacity 
-                  onPress={() => setShowAlreadyLoggedModal(false)} 
-                  style={{ 
-                    flex: 1, 
-                    backgroundColor: "#E5E7EB",
-                    borderRadius: 12, 
-                    padding: 14, 
-                    alignItems: "center",
-                    marginRight: 8,
-                  }}
-                >
-                  <Text
-                    style={{
-                      color: "#374151",
-                      fontWeight: "bold",
-                      fontSize: 16,
-                    }}
-                  >
-                    Cancel
-                  </Text>
-                </TouchableOpacity>
-                <TouchableOpacity 
-                  onPress={() => {
-                    const log = sleepLogs.find(
-                      (l) =>
-                        getDateOnly(l.date) === todayStr &&
-                        l.user_id === realUserId
+                            {isExpanded && (
+                              <>
+                                {month.logs.map((log) => (
+                                  <LogItem key={log.id} log={log} />
+                                ))}
+                              </>
+                            )}
+                          </>
+                        )}
+                      </View>
                     );
-                    if (log) {
-                      setStartTime(log.start_time);
-                      setEndTime(log.end_time);
-                      setQuality(log.quality || "Good");
-                      setMood(log.mood || "Relaxed");
-                      setEditMode(true);
-                      setEditingLogId(log.id);
-                      setShowLogModal(true);
-                    }
-                    setShowAlreadyLoggedModal(false);
-                  }} 
-                  style={{ 
-                    flex: 1, 
-                    backgroundColor: "#4F46E5",
-                    borderRadius: 12, 
-                    padding: 14, 
-                    alignItems: "center",
-                    marginLeft: 8,
-                  }}
+                  })}
+                </>
+              );
+            }
+          }, [sleepLogs, showAllLogs, expandedMonths])}
+        </ScrollView>
+      </SafeAreaView>
+
+      {/* Time Pickers */}
+      {showBedtimePicker && (
+        <DateTimePicker
+          value={scheduledBedtime ? new Date(`1970-01-01T${scheduledBedtime}:00`) : new Date()}
+          mode="time"
+          is24Hour={false}
+          display="default"
+          onChange={(event, date) => {
+            setShowBedtimePicker(false);
+            if (date) {
+              const h = date.getHours().toString().padStart(2, "0");
+              const m = date.getMinutes().toString().padStart(2, "0");
+              setScheduledBedtime(`${h}:${m}`);
+              console.log('🛏️ Bedtime set to:', `${h}:${m}`);
+            }
+          }}
+        />
+      )}
+      
+      {showWakeupPicker && (
+        <DateTimePicker
+          value={scheduledWakeup ? new Date(`1970-01-01T${scheduledWakeup}:00`) : new Date()}
+          mode="time"
+          is24Hour={false}
+          display="default"
+          onChange={(event, date) => {
+            setShowWakeupPicker(false);
+            if (date) {
+              const h = date.getHours().toString().padStart(2, "0");
+              const m = date.getMinutes().toString().padStart(2, "0");
+              setScheduledWakeup(`${h}:${m}`);
+              console.log('☀️ Wakeup set to:', `${h}:${m}`);
+            }
+          }}
+        />
+      )}
+
+      {/* Sleep Goal Modal */}
+      <Modal visible={showSleepGoalModal} animationType="fade" transparent>
+        <View style={styles.modalOverlay}>
+          <View style={styles.modalContent}>
+            <Text style={styles.modalTitle}>Set Sleep Goal</Text>
+            <Text style={styles.modalMessage}>
+              How many hours of sleep do you want to aim for each night?
+            </Text>
+            
+            <View style={styles.goalOptions}>
+              {[6, 7, 8, 9, 10].map((hours) => (
+                <TouchableOpacity
+                  key={hours}
+                  style={[
+                    styles.goalOption,
+                    tempSleepGoal === hours && styles.selectedGoalOption
+                  ]}
+                  onPress={() => setTempSleepGoal(hours)}
                 >
-                  <Text
-                    style={{ color: "#fff", fontWeight: "bold", fontSize: 16 }}
-                  >
-                    Edit
+                  <Text style={[
+                    styles.goalOptionText,
+                    tempSleepGoal === hours && styles.selectedGoalOptionText
+                  ]}>
+                    {hours}h
                   </Text>
                 </TouchableOpacity>
-              </View>
+              ))}
             </View>
-          </View>
-        </Modal>
-
-        {/* Log Sleep Modal */}
-        <Modal visible={showLogModal} animationType="slide" transparent>
-          <View
-            style={{
-              flex: 1,
-              backgroundColor: "rgba(0,0,0,0.2)",
-              justifyContent: "center",
-              alignItems: "center",
-            }}
-          >
-            <View
-              style={{
-                backgroundColor: "#fff",
-                borderRadius: 20,
-                padding: 24,
-                width: "90%",
-              }}
-            >
-              <Text
-                style={{ fontWeight: "bold", fontSize: 20, marginBottom: 18 }}
-              >
-                {editMode ? "Edit Your Sleep" : "Log Your Sleep"}
-              </Text>
-              
-              {/* Start Time Picker */}
-              <TouchableOpacity 
-                onPress={() => setShowFromPicker(true)} 
-                style={{ 
-                  marginBottom: 12, 
-                  flexDirection: "row",
-                  alignItems: "center",
-                  justifyContent: "space-between",
-                  backgroundColor: "#F3F4F6",
-                  borderRadius: 12, 
-                  padding: 14,
-                }}
-              >
-                <Text style={{ fontSize: 16, color: "#374151" }}>Bedtime</Text>
-                <Text
-                  style={{ fontSize: 16, color: "#3B82F6", fontWeight: "600" }}
-                >
-                  {startTime || "--:--"}
-                </Text>
-              </TouchableOpacity>
-              
-              {/* End Time Picker */}
-              <TouchableOpacity 
-                onPress={() => setShowToPicker(true)} 
-                style={{ 
-                  marginBottom: 12, 
-                  flexDirection: "row",
-                  alignItems: "center",
-                  justifyContent: "space-between",
-                  backgroundColor: "#F3F4F6",
-                  borderRadius: 12, 
-                  padding: 14,
-                }}
-              >
-                <Text style={{ fontSize: 16, color: "#374151" }}>Wake-up</Text>
-                <Text
-                  style={{ fontSize: 16, color: "#3B82F6", fontWeight: "600" }}
-                >
-                  {endTime || "--:--"}
-                </Text>
-              </TouchableOpacity>
-              
-              {/* Quality Picker */}
-              <View style={{ marginBottom: 12 }}>
-                <Text
-                  style={{ fontSize: 16, color: "#374151", marginBottom: 6 }}
-                >
-                  Sleep Quality
-                </Text>
-                <View style={{ flexDirection: "row" }}>
-                  {SLEEP_QUALITIES.map((q) => (
-                    <TouchableOpacity 
-                      key={q} 
-                      onPress={() => setQuality(q)} 
-                      style={{ 
-                        backgroundColor: quality === q ? "#6366F1" : "#F3F4F6",
-                        borderRadius: 8, 
-                        paddingVertical: 8, 
-                        paddingHorizontal: 14, 
-                        marginRight: 8,
-                      }}
-                    >
-                      <Text
-                        style={{
-                          color: quality === q ? "#fff" : "#374151",
-                          fontWeight: "600",
-                        }}
-                      >
-                        {q}
-                      </Text>
-                    </TouchableOpacity>
-                  ))}
-                </View>
-              </View>
-              
-              {/* Mood Picker */}
-              <View style={{ marginBottom: 18 }}>
-                <Text
-                  style={{ fontSize: 16, color: "#374151", marginBottom: 6 }}
-                >
-                  Mood
-                </Text>
-                <View style={{ flexDirection: "row" }}>
-                  {MOODS.map((m) => (
-                    <TouchableOpacity 
-                      key={m} 
-                      onPress={() => setMood(m)} 
-                      style={{ 
-                        backgroundColor: mood === m ? "#A78BFA" : "#F3F4F6",
-                        borderRadius: 8, 
-                        paddingVertical: 8, 
-                        paddingHorizontal: 14, 
-                        marginRight: 8,
-                      }}
-                    >
-                      <Text
-                        style={{
-                          color: mood === m ? "#fff" : "#374151",
-                          fontWeight: "600",
-                        }}
-                      >
-                        {m}
-                      </Text>
-                    </TouchableOpacity>
-                  ))}
-                </View>
-              </View>
-              
-              {/* Log Sleep Button */}
+            
+            <View style={styles.modalActions}>
               <TouchableOpacity
-                style={{ 
-                  backgroundColor:
-                    !startTime || !endTime ? "#CBD5E1" : "#3B82F6",
-                  borderRadius: 14, 
-                  paddingVertical: 16, 
-                  alignItems: "center",
-                  marginBottom: 8,
-                }}
-                onPress={handleAddSleep}
-                disabled={!startTime || !endTime}
+                style={[styles.modalButton, styles.cancelButton]}
+                onPress={() => setShowSleepGoalModal(false)}
               >
-                <Text
-                  style={{ color: "#fff", fontWeight: "bold", fontSize: 18 }}
-                >
-                  {editMode ? "Update Sleep" : "Log Sleep"}
-                </Text>
+                <Text style={styles.cancelButtonText}>Cancel</Text>
               </TouchableOpacity>
-              
-              <TouchableOpacity 
-                onPress={() => { 
-                  setShowLogModal(false); 
-                  setEditMode(false); 
-                  setEditingLogId(null); 
-                }} 
-                style={{ alignItems: "center", marginTop: 2 }}
+              <TouchableOpacity
+                style={[styles.modalButton, styles.saveButton]}
+                onPress={handleSaveSleepGoal}
               >
-                <Text style={{ color: "#888", fontSize: 16 }}>Cancel</Text>
+                <Text style={styles.saveButtonText}>Save</Text>
               </TouchableOpacity>
             </View>
           </View>
-        </Modal>
-
-        {/* Reminder Time Pickers */}
-        {showBedtimeReminderPicker && (
-          <DateTimePicker
-            value={
-              bedtimeReminder
-                ? new Date(`1970-01-01T${bedtimeReminder}:00`)
-                : new Date()
-            }
-            mode="time"
-            is24Hour={false}
-            display="default"
-            onChange={(event, date) => {
-              setShowBedtimeReminderPicker(false);
-              if (date) {
-                const h = date.getHours().toString().padStart(2, "0");
-                const m = date.getMinutes().toString().padStart(2, "0");
-                setBedtimeReminder(`${h}:${m}`);
-              }
-            }}
-          />
-        )}
-        {showWakeReminderPicker && (
-          <DateTimePicker
-            value={
-              wakeReminder
-                ? new Date(`1970-01-01T${wakeReminder}:00`)
-                : new Date()
-            }
-            mode="time"
-            is24Hour={false}
-            display="default"
-            onChange={(event, date) => {
-              setShowWakeReminderPicker(false);
-              if (date) {
-                const h = date.getHours().toString().padStart(2, "0");
-                const m = date.getMinutes().toString().padStart(2, "0");
-                setWakeReminder(`${h}:${m}`);
-              }
-            }}
-          />
-        )}
-
-        {/* Sleep Goal Modal */}
-        <Modal visible={showSleepGoalModal} animationType="fade" transparent>
-          <View
-            style={{
-              flex: 1,
-              backgroundColor: "rgba(0,0,0,0.2)",
-              justifyContent: "center",
-              alignItems: "center",
-            }}
-          >
-            <View
-              style={{
-                backgroundColor: "#fff",
-                borderRadius: 16,
-                padding: 20,
-                width: "80%",
-                maxWidth: 300,
-              }}
-            >
-              <Text
-                style={{ 
-                  fontWeight: "bold", 
-                  fontSize: 18, 
-                  marginBottom: 16,
-                  textAlign: "center"
-                }}
-              >
-                Set Sleep Goal
-              </Text>
-              
-              <TextInput
-                style={{
-                  borderWidth: 1,
-                  borderColor: "#E2E8F0",
-                  borderRadius: 8,
-                  padding: 12,
-                  fontSize: 16,
-                  textAlign: "center",
-                  marginBottom: 20,
-                }}
-                value={tempSleepGoal.toString()}
-                onChangeText={(text) => setTempSleepGoal(parseFloat(text) || 0)}
-                keyboardType="numeric"
-                placeholder="8"
-                maxLength={4}
-              />
-              
-              <View style={{ flexDirection: "row", gap: 12 }}>
-                <TouchableOpacity
-                  style={{ 
-                    flex: 1,
-                    backgroundColor: "#F3F4F6",
-                    borderRadius: 8, 
-                    paddingVertical: 12, 
-                    alignItems: "center",
-                  }}
-                  onPress={() => setShowSleepGoalModal(false)}
-                >
-                  <Text style={{ color: "#374151", fontWeight: "600" }}>Cancel</Text>
-                </TouchableOpacity>
-                
-                <TouchableOpacity
-                  style={{ 
-                    flex: 1,
-                    backgroundColor: "#4F46E5",
-                    borderRadius: 8, 
-                    paddingVertical: 12, 
-                    alignItems: "center",
-                  }}
-                  onPress={handleSleepGoalUpdate}
-                >
-                  <Text style={{ color: "#fff", fontWeight: "600" }}>Set Goal</Text>
-                </TouchableOpacity>
-              </View>
-            </View>
-          </View>
-        </Modal>
-      </ScrollView>
-
-    </SafeAreaView>
+        </View>
+      </Modal>
+    </View>
   );
 };
 
 const styles = StyleSheet.create({
-  heading: {
-    fontSize: 28,
-    fontFamily: "Lexend-Bold",
-    color: "#222",
-    textAlign: "center",
-    marginTop: 10,
-    marginBottom: 10,
-  },
-  lastSleepRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    marginBottom: 18,
-  },
-  labelBlack: {
-    fontSize: 16,
-    fontFamily: "Lexend-Bold",
-    color: "#222",
-    marginBottom: 2,
-  },
-  labelSmallBlack: {
-    fontSize: 14,
-    fontFamily: "Manrope-Bold",
-    color: "#222",
-    marginRight: 8,
-  },
-  lastSleepDuration: { fontSize: 22, fontFamily: "Lexend-Bold", color: "#222" },
-  lastSleepTime: { fontSize: 15, fontFamily: "Manrope-Regular", color: "#222" },
-  lastSleepMood: { fontSize: 15, fontFamily: "Manrope-Regular", color: "#222" },
-  sleepImg: {
-    width: 80,
-    height: 80,
-    borderRadius: 16,
-    marginLeft: 12,
-    backgroundColor: "#eee",
-  },
-  sleepImg1: {
-    width: 80,
-    height: 80,
-    borderRadius: 16,
-    marginLeft: 12,
-    backgroundColor: "#eee",
-    marginTop: -220,
-  },
-  input: {
-    borderWidth: 1,
-    borderColor: "#E5E7EB",
-    borderRadius: 8,
-    padding: 8,
-    marginVertical: 4,
-    fontFamily: "Manrope-Regular",
-    fontSize: 15,
-    color: "#222",
-    backgroundColor: "#fff",
-  },
-  pillBtn: {
-    paddingHorizontal: 16,
-    paddingVertical: 7,
-    borderRadius: 20,
-    borderWidth: 1.5,
-    borderColor: "#E5E7EB",
-    backgroundColor: "#fff",
-    marginRight: 10,
-    marginBottom: 8,
-    shadowColor: "#000",
-    shadowOffset: { width: 0, height: 1 },
-    shadowOpacity: 0.07,
-    shadowRadius: 2,
-    elevation: 2,
-  },
-  pillBtnActive: {
-    backgroundColor: "#7B61FF",
-    borderColor: "#7B61FF",
-  },
-  pillBtnInactive: {
-    backgroundColor: "#fff",
-    borderColor: "#E5E7EB",
-  },
-  pillBtnText: {
-    fontFamily: "Lexend-Bold",
-    color: "#222",
-    fontSize: 15,
-  },
-  pillBtnTextActive: {
-    color: "#fff",
-  },
-  addBtn: {
-    backgroundColor: "#7B61FF",
-    borderRadius: 12,
-    paddingVertical: 12,
-    alignItems: "center",
-    marginBottom: 18,
-  },
-  addBtnText: { color: "#fff", fontFamily: "Lexend-Bold", fontSize: 17 },
-  syncCard: {
-    backgroundColor: "#F3F0FF",
-    borderRadius: 16,
-    padding: 16,
-    marginBottom: 18,
-  },
-  syncTitleBlack: {
-    fontFamily: "Lexend-Bold",
-    fontSize: 16,
-    color: "#222",
-    marginBottom: 4,
-  },
-  syncTextBlack: { fontFamily: "Manrope-Regular", fontSize: 15, color: "#222" },
-  weekHeadingBlack: {
-    fontSize: 20,
-    fontFamily: "Lexend-Bold",
-    color: "#222",
-    marginTop: 18,
-    marginBottom: 6,
-  },
-  barChartRow: {
-    flexDirection: "row",
-    alignItems: "flex-end",
-    justifyContent: "space-between",
-    marginVertical: 10,
-  },
-  barCol: { alignItems: "center", flex: 1 },
-  bar: {
-    width: 18,
-    backgroundColor: "#D1C4E9",
-    borderRadius: 6,
-    marginBottom: 4,
-  },
-  barLabelBlack: { fontSize: 13, fontFamily: "Manrope-Bold", color: "#222" },
-  tipsTextBlack: {
-    fontFamily: "Manrope-Regular",
-    fontSize: 15,
-    color: "#222",
-    marginBottom: 24,
-  },
-  timeRow: { flexDirection: "row", alignItems: "center", marginVertical: 8 },
-  timeBtn: {
-    borderWidth: 1,
-    borderColor: "#E5E7EB",
-    borderRadius: 8,
-    padding: 8,
-    minWidth: 70,
-    alignItems: "center",
-    backgroundColor: "#fff",
-  },
-  timeBtnText: { fontSize: 16, fontFamily: "Lexend-Bold", color: "#222" },
-  timeDash: {
-    fontSize: 18,
-    fontFamily: "Lexend-Bold",
-    color: "#222",
-    marginHorizontal: 8,
-  },
-  // Header styles matching ProfileScreen
   container: {
     flex: 1,
-    backgroundColor: '#F8F7FC',
+    backgroundColor: '#F8F9FA',
+  },
+  safeArea: {
+    flex: 1,
   },
   header: {
     flexDirection: 'row',
     alignItems: 'center',
-    justifyContent: 'space-between',
-    paddingTop: getResponsivePadding(8),
-    paddingHorizontal: getResponsivePadding(20),
-    paddingBottom: getResponsivePadding(8),
-    backgroundColor: '#F8F7FC',
-    minHeight: getResponsivePadding(40),
+    paddingHorizontal: 20,
+    paddingVertical: 16,
+    backgroundColor: '#F8F9FA',
   },
   backButton: {
-    padding: 8,
+    marginRight: 16,
   },
   headerTitle: {
-    fontSize: 22,
-    fontWeight: 'bold',
-    color: '#333',
+    flex: 1,
+    fontSize: 20,
+    fontWeight: '700',
+    color: '#1F2937',
+    textAlign: 'center',
   },
   placeholder: {
-    width: 40,
+    width: 24,
+  },
+  
+  scrollViewStyle: {
+    flex: 1,
+  },
+  scrollContent: {
+    padding: 20,
+    flexGrow: 1,
+  },
+  
+  // Last Night's Sleep Card
+  lastNightCard: {
+    backgroundColor: "#FFFFFF",
+    borderRadius: 20,
+    padding: 16,
+    marginBottom: 20,
+    shadowColor: "#000",
+    shadowOpacity: 0.08,
+    shadowRadius: 16,
+    shadowOffset: { width: 0, height: 4 },
+    elevation: 5,
+    flexDirection: "row",
+    alignItems: "center",
+  },
+  sleepIconContainer: {
+    width: 64,
+    height: 64,
+    borderRadius: 32,
+    backgroundColor: "#F3E8FF",
+    alignItems: "center",
+    justifyContent: "center",
+    marginRight: 18,
+  },
+  lastNightLabel: {
+    color: "#9CA3AF", 
+    fontSize: 15, 
+    fontWeight: "500",
+    letterSpacing: 0.3,
+  },
+  lastNightDuration: {
+    fontWeight: "700", 
+    fontSize: 25, 
+    color: "#1F2937",
+    letterSpacing: -1,
+  },
+  lastNightComparison: {
+    color: "#9CA3AF", 
+    fontSize: 14,
+    fontWeight: "500",
+  },
+  
+  // Section Titles
+  sectionTitle: {
+    fontWeight: "800",
+    fontSize: 20,
+    color: "#111827",
+    marginBottom: 12,
+    marginLeft: 4,
+  },
+  
+  // Weekly Chart
+  weeklyCard: {
+    backgroundColor: "#fff",
+    borderRadius: 16,
+    padding: 16,
+    marginBottom: 20,
+    shadowColor: "#000",
+    shadowOpacity: 0.05,
+    shadowRadius: 8,
+    elevation: 3,
+  },
+  chartContainer: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "flex-end",
+    height: 140,
+  },
+  barContainer: {
+    alignItems: "center", 
+    width: 32,
+  },
+  barTrack: {
+    width: 22,
+    height: 120,
+    borderRadius: 12,
+    backgroundColor: "#E5E7EB",
+    overflow: "hidden",
+    justifyContent: "flex-end",
+    position: "relative",
+  },
+  emptyBar: {
+    width: "100%",
+    height: 120,
+    backgroundColor: "#F3F4F6",
+    justifyContent: "center",
+    alignItems: "center",
+  },
+  dayLabel: {
+    color: "#6B7280", 
+    fontSize: 12, 
+    marginTop: 8,
+  },
+  noDataMessage: {
+    alignItems: "center", 
+    marginTop: 16, 
+    padding: 10,
+  },
+  noDataText: {
+    color: "#9CA3AF", 
+    fontSize: 14, 
+    textAlign: "center",
+  },
+  
+  // Sleep Goal Card
+  sleepGoalMainCard: {
+    backgroundColor: "#FFFFFF",
+    borderRadius: 20,
+    padding: 18,
+    marginBottom: 20,
+    shadowColor: "#1F2937",
+    shadowOpacity: 0.06,
+    shadowRadius: 12,
+    shadowOffset: { width: 0, height: 4 },
+    elevation: 6,
+    borderWidth: 1,
+    borderColor: "rgba(255, 255, 255, 0.2)",
+  },
+  goalSection: {
+    backgroundColor: "#FAFAFB",
+    borderRadius: 16,
+    paddingVertical: 14,
+    paddingHorizontal: 16,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    borderWidth: 1,
+    borderColor: "#E2E8F0",
+    shadowColor: "#000",
+    shadowOpacity: 0.03,
+    shadowRadius: 6,
+    shadowOffset: { width: 0, height: 2 },
+    marginBottom: 16,
+  },
+  goalHeader: {
+    flexDirection: "row", 
+    alignItems: "center",
+  },
+  goalIcon: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    alignItems: "center",
+    justifyContent: "center",
+    marginRight: 12,
+  },
+  goalEmoji: {
+    fontSize: 18,
+  },
+  goalTitle: {
+    fontSize: 15,
+    fontWeight: "600",
+    color: "#1E293B",
+    marginBottom: 2,
+  },
+  goalSubtitle: {
+    fontSize: 12, 
+    color: "#64748B",
+  },
+  goalBadge: {
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: 12,
+    backgroundColor: "#F0F9FF",
+    borderWidth: 1,
+    borderColor: "#E0F2FE",
+  },
+  goalBadgeText: {
+    fontSize: 14,
+    fontWeight: "700",
+    color: "#0369A1",
+  },
+  
+  // Schedule Section
+  scheduleSection: {
+    marginTop: 8,
+  },
+  scheduleHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 16,
+  },
+  scheduleTitle: {
+    fontSize: 16,
+    fontWeight: '600',
+    color: '#1F2937',
+  },
+  editButton: {
+    paddingHorizontal: 16,
+    paddingVertical: 8,
+  },
+  editButtonText: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: '#2563EB',
+  },
+  scheduleContainer: {
+    flexDirection: 'row',
+    gap: 12,
+  },
+  scheduleButton: {
+    flex: 1,
+    borderRadius: 16,
+    padding: 12,
+    minHeight: 60,
+  },
+  scheduleButtonDisabled: {
+    opacity: 0.5,
+  },
+  bedtimeButton: {
+    backgroundColor: '#2563EB',
+  },
+  wakeupButton: {
+    backgroundColor: '#2563EB',
+  },
+  scheduleButtonHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: 4,
+  },
+  scheduleButtonIcon: {
+    marginRight: 6,
+  },
+  scheduleButtonLabel: {
+    color: 'white',
+    fontSize: 12,
+    fontWeight: '500',
+  },
+  scheduleButtonTime: {
+    color: 'white',
+    fontSize: 18,
+    fontWeight: '700',
+  },
+  
+  // Log Sleep Button
+  logSleepButton: {
+    borderRadius: 16, 
+    paddingVertical: 16, 
+    alignItems: "center",
+    marginBottom: 12,
+  },
+  logSleepButtonDisabled: {
+    backgroundColor: "#E5E7EB",
+    shadowOpacity: 0,
+    elevation: 0,
+  },
+  logSleepButtonEnabled: {
+    backgroundColor: "#4F46E5",
+    shadowColor: "#4F46E5",
+    shadowOpacity: 0.3,
+    shadowRadius: 8,
+    shadowOffset: { width: 0, height: 4 },
+    elevation: 6,
+  },
+  logSleepButtonText: {
+    fontWeight: "bold", 
+    fontSize: 18,
+  },
+  logSleepButtonTextDisabled: {
+    color: "#9CA3AF",
+  },
+  logSleepButtonTextEnabled: {
+    color: "#fff",
+  },
+  
+  // Status Message
+  statusMessage: {
+    backgroundColor: '#F0F9FF',
+    borderRadius: 12,
+    padding: 12,
+    marginBottom: 20,
+    borderWidth: 1,
+    borderColor: '#E0F2FE',
+  },
+  statusText: {
+    fontSize: 14,
+    color: '#0C4A6E',
+    textAlign: 'center',
+    fontWeight: '500',
+  },
+  
+  // Tip Card
+  tipCard: {
+    backgroundColor: "#F3E8FF",
+    borderRadius: 16,
+    padding: 16,
+    marginBottom: 20,
+  },
+  tipText: {
+    color: "#6B21A8",
+  },
+  tipHighlight: {
+    fontWeight: "800",
+  },
+  
+  // Insights and Recommendations
+  insightsCard: {
+    backgroundColor: '#FFFFFF',
+    borderRadius: 16,
+    padding: 20,
+    marginVertical: 8,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.1,
+    shadowRadius: 8,
+    elevation: 3,
+  },
+  insightsTitle: {
+    fontSize: 18,
+    fontWeight: '700',
+    color: '#11181C',
+    marginBottom: 16,
+  },
+  insightItem: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    backgroundColor: '#F8F9FF',
+    borderRadius: 12,
+    padding: 16,
+    marginBottom: 12,
+    borderWidth: 1,
+    borderColor: '#E0E7FF',
+  },
+  highPriorityInsight: {
+    backgroundColor: '#FEF3C7',
+    borderColor: '#F59E0B',
+  },
+  insightIcon: {
+    fontSize: 24,
+    marginRight: 12,
+    marginTop: 2,
+  },
+  insightContent: {
+    flex: 1,
+  },
+  insightTitle: {
+    fontSize: 16,
+    fontWeight: '600',
+    color: '#374151',
+    marginBottom: 4,
+  },
+  insightMessage: {
+    fontSize: 14,
+    color: '#6B7280',
+    marginBottom: 6,
+    lineHeight: 20,
+  },
+  insightAction: {
+    fontSize: 13,
+    color: '#7B61FF',
+    fontWeight: '500',
+    fontStyle: 'italic',
+  },
+  
+  recommendationsCard: {
+    backgroundColor: '#FFFFFF',
+    borderRadius: 16,
+    padding: 20,
+    marginVertical: 8,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.1,
+    shadowRadius: 8,
+    elevation: 3,
+  },
+  recommendationsTitle: {
+    fontSize: 18,
+    fontWeight: '700',
+    color: '#11181C',
+    marginBottom: 16,
+  },
+  recommendationItem: {
+    backgroundColor: '#F0F9FF',
+    borderRadius: 12,
+    padding: 16,
+    marginBottom: 12,
+    borderWidth: 1,
+    borderColor: '#E0F2FE',
+  },
+  recommendationMessage: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: '#374151',
+    marginBottom: 4,
+    lineHeight: 20,
+  },
+  recommendationAction: {
+    fontSize: 13,
+    color: '#0369A1',
+    fontStyle: 'italic',
+  },
+  
+  // Sleep History
+  historyHeader: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    marginBottom: 12,
+    marginTop: 8,
+  },
+  historyTitle: {
+    fontWeight: "800",
+    fontSize: 18,
+    color: "#111827",
+    marginLeft: 4,
+  },
+  viewAllButton: {
+    backgroundColor: "#F3F4F6",
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    borderRadius: 16,
+  },
+  viewAllButtonText: {
+    color: "#111827", 
+    fontWeight: "700",
+  },
+  
+  noLogsMessage: {
+    backgroundColor: '#F9FAFB',
+    borderRadius: 12,
+    padding: 20,
+    marginBottom: 20,
+    alignItems: 'center',
+  },
+  noLogsText: {
+    fontSize: 14,
+    color: '#6B7280',
+    textAlign: 'center',
+  },
+  
+  // Log Cards
+  logCard: {
+    backgroundColor: "#fff",
+    borderRadius: 16,
+    padding: 16,
+    marginBottom: 12,
+    shadowColor: "#000",
+    shadowOpacity: 0.05,
+    shadowRadius: 8,
+    elevation: 3,
+  },
+  logCardContent: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+  },
+  logDate: {
+    fontWeight: "700",
+    color: "#111827",
+    fontSize: 16,
+  },
+  logTime: {
+    color: "#6B7280", 
+    marginTop: 4,
+  },
+  logDuration: {
+    fontWeight: "800",
+    color: "#7C3AED",
+    fontSize: 16,
+  },
+  
+  // Month Headers
+  monthTitle: {
+    fontWeight: "800",
+    fontSize: 18,
+    color: "#111827",
+    marginBottom: 12,
+    marginTop: 8,
+  },
+  monthHeader: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    backgroundColor: "#F8F9FA",
+    borderRadius: 12,
+    padding: 12,
+    marginBottom: 8,
+    marginTop: 8,
+  },
+  monthHeaderText: {
+    fontWeight: "700",
+    fontSize: 16,
+    color: "#111827",
+  },
+  monthHeaderRight: {
+    flexDirection: "row",
+    alignItems: "center",
+  },
+  monthLogCount: {
+    color: "#6B7280",
+    fontSize: 14,
+    marginRight: 8,
+  },
+  expandIcon: {
+    fontSize: 18,
+    color: "#6B7280",
+  },
+  
+  // Modal Styles
+  modalOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0, 0, 0, 0.5)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    padding: 20,
+  },
+  modalContent: {
+    backgroundColor: 'white',
+    borderRadius: 16,
+    padding: 20,
+    width: '100%',
+    maxWidth: 400,
+  },
+  modalTitle: {
+    fontSize: 20,
+    fontWeight: '700',
+    color: '#1F2937',
+    textAlign: 'center',
+    marginBottom: 16,
+  },
+  modalMessage: {
+    fontSize: 16,
+    color: '#6B7280',
+    textAlign: 'center',
+    marginBottom: 20,
+    lineHeight: 22,
+  },
+  
+  // Goal Options
+  goalOptions: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    marginBottom: 20,
+  },
+  goalOption: {
+    backgroundColor: '#F8F9FA',
+    borderRadius: 12,
+    paddingVertical: 12,
+    paddingHorizontal: 16,
+    borderWidth: 1,
+    borderColor: '#E5E7EB',
+    minWidth: 50,
+    alignItems: 'center',
+  },
+  selectedGoalOption: {
+    backgroundColor: '#8B5CF6',
+    borderColor: '#8B5CF6',
+  },
+  goalOptionText: {
+    fontSize: 16,
+    color: '#1F2937',
+    fontWeight: '600',
+  },
+  selectedGoalOptionText: {
+    color: 'white',
+  },
+  
+  // Modal Actions
+  modalActions: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    gap: 12,
+  },
+  modalButton: {
+    flex: 1,
+    paddingVertical: 12,
+    borderRadius: 8,
+    alignItems: 'center',
+  },
+  cancelButton: {
+    backgroundColor: '#F3F4F6',
+  },
+  cancelButtonText: {
+    color: '#374151',
+    fontSize: 16,
+    fontWeight: '500',
+  },
+  saveButton: {
+    backgroundColor: '#059669',
+  },
+  saveButtonText: {
+    color: 'white',
+    fontSize: 16,
+    fontWeight: '600',
   },
 });
 
