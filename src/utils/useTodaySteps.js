@@ -19,10 +19,10 @@ const useTodaySteps = () => {
     totalEvents: 0
   });
 
-  // More lenient step protection for testing
-  const STEP_COOLDOWN = 100;
+  // Step validation parameters
+  const STEP_COOLDOWN = 100; // 100ms between events (allows ~10 steps/second)
   const MIN_STEP_COUNT = 1;
-  const MAX_STEP_BURST = 20;
+  const MAX_STEPS_PER_EVENT = 5; // Cap at 5 steps per event to prevent sensor errors
 
   const getTodayDateString = () => {
     const today = new Date();
@@ -201,37 +201,42 @@ const useTodaySteps = () => {
               steps: stepResult.steps,
               timeSinceLastStep,
               minCount: MIN_STEP_COUNT,
-              maxBurst: MAX_STEP_BURST,
+              maxPerEvent: MAX_STEPS_PER_EVENT,
               cooldown: STEP_COOLDOWN
             });
 
-            // VERY LENIENT filtering for testing
+            // Validation: minimum steps
             if (stepResult.steps < MIN_STEP_COUNT) {
               console.log('🚫 Filtered: too few steps:', stepResult.steps);
               return;
             }
             
-            if (stepResult.steps > MAX_STEP_BURST) {
-              console.log('🚫 Filtered: too many steps at once:', stepResult.steps);
-              return;
-            }
-            
+            // Validation: prevent duplicate/rapid-fire events
             if (timeSinceLastStep < STEP_COOLDOWN) {
-              console.log('🚫 Filtered: too fast:', timeSinceLastStep, 'ms');
+              console.log('🚫 Filtered: too fast (duplicate event):', timeSinceLastStep, 'ms');
               return;
             }
 
+            // Use the actual step count from the sensor, but cap it to prevent errors
+            // At 100ms cooldown, max 5 steps = walking at 50 steps/second (impossible)
+            // Normal fast walking is ~3 steps/second
+            let stepsToAdd = Math.min(stepResult.steps, MAX_STEPS_PER_EVENT);
+            
+            if (stepResult.steps > MAX_STEPS_PER_EVENT) {
+              console.log('⚠️ Sensor error: capping', stepResult.steps, '→', stepsToAdd);
+            }
+
             // VALID STEP DETECTED
-            console.log('🎉🎉🎉 VALID STEP DETECTED:', stepResult.steps);
+            console.log('✅ VALID STEPS:', stepsToAdd, '(from sensor:', stepResult.steps, ')');
             lastStepTime = now;
-            setDebugInfo(`🎉 STEP DETECTED! +${stepResult.steps}`);
+            setDebugInfo(`✅ +${stepsToAdd} steps`);
             
             setStepsToday(prevSteps => {
-              const newTotalSteps = prevSteps + stepResult.steps;
-              console.log('📊📊📊 TOTAL STEPS UPDATED:', newTotalSteps);
+              const newTotalSteps = prevSteps + stepsToAdd;
+              console.log('📊 Total steps:', newTotalSteps);
               
               updateStepMetrics(newTotalSteps);
-              setDebugInfo(`🚶‍♂️ ${newTotalSteps} steps detected`);
+              setDebugInfo(`🚶‍♂️ ${newTotalSteps} steps`);
               
               return newTotalSteps;
             });
