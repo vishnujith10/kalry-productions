@@ -22,6 +22,7 @@ const HydrationTrackerScreen = () => {
   // Initialize state with cached data (Instagram pattern)
   const [currentIntake, setCurrentIntake] = useState(() => globalHydrationCache.cachedData?.currentIntake || 0);
   const [dailyGoal, setDailyGoal] = useState(() => globalHydrationCache.cachedData?.dailyGoal || 2.5);
+  const [defaultGoal, setDefaultGoal] = useState(() => globalHydrationCache.cachedData?.defaultGoal || 2.5); // Persistent default goal
   const [remindersEnabled, setRemindersEnabled] = useState(true);
   const [modalVisible, setModalVisible] = useState(false);
   const [goalInput, setGoalInput] = useState('2.5');
@@ -355,6 +356,7 @@ const HydrationTrackerScreen = () => {
         
         setCurrentIntake(intakeValue);
         setDailyGoal(goalValue);
+        setDefaultGoal(goalValue); // Set default goal to today's goal
         setRecordId(data.id);
         setIntake1(intake1Value);
         setIntake2(intake2Value);
@@ -364,6 +366,7 @@ const HydrationTrackerScreen = () => {
           ...globalHydrationCache.cachedData,
           currentIntake: intakeValue,
           dailyGoal: goalValue,
+          defaultGoal: goalValue, // Cache the default goal
           intake1: intake1Value,
           intake2: intake2Value,
           recordId: data.id,
@@ -402,7 +405,7 @@ const HydrationTrackerScreen = () => {
           user_id: userId,
           date: today,
           current_intake_ml: 0,
-          daily_goal_ml: dailyGoal * 1000, // Convert L to ml
+          daily_goal_ml: defaultGoal * 1000, // Use persistent default goal instead of dailyGoal
           intake1_ml: intake1,
           intake2_ml: intake2,
           goal_status: 'not achieved',
@@ -417,6 +420,7 @@ const HydrationTrackerScreen = () => {
 
       setRecordId(data.id);
       setCurrentIntake(0);
+      setDailyGoal(defaultGoal); // Set today's goal to the default goal
     } catch (error) {
       console.error('Error creating today record:', error);
       Alert.alert('Error', 'Failed to create today\'s record');
@@ -580,72 +584,72 @@ const HydrationTrackerScreen = () => {
       label: 'Mon', 
       intake: todayIndex === 0 ? currentIntake : (weeklyIntakeData[0] || 0), 
       isToday: todayIndex === 0, 
-      goalAchieved: todayIndex === 0 ? isGoalAchieved : (weeklyIntakeData[0] || 0) >= (weeklyGoals[0] || 2.5),
+      goalAchieved: todayIndex === 0 ? isGoalAchieved : (weeklyIntakeData[0] || 0) >= (weeklyGoals[0] || defaultGoal),
       intake1: todayIndex === 0 ? intake1 : (weeklyIntakeValues[0]?.intake1 || 250),
       intake2: todayIndex === 0 ? intake2 : (weeklyIntakeValues[0]?.intake2 || 500),
-      dayGoal: todayIndex === 0 ? dailyGoal : (weeklyGoals[0] || 2.5)
+      dayGoal: todayIndex === 0 ? dailyGoal : (weeklyGoals[0] || defaultGoal)
     },
     { 
       day: 'Tue', 
       label: 'Tue', 
       intake: todayIndex === 1 ? currentIntake : (weeklyIntakeData[1] || 0), 
       isToday: todayIndex === 1, 
-      goalAchieved: todayIndex === 1 ? isGoalAchieved : (weeklyIntakeData[1] || 0) >= (weeklyGoals[1] || 2.5),
+      goalAchieved: todayIndex === 1 ? isGoalAchieved : (weeklyIntakeData[1] || 0) >= (weeklyGoals[1] || defaultGoal),
       intake1: todayIndex === 1 ? intake1 : (weeklyIntakeValues[1]?.intake1 || 250),
       intake2: todayIndex === 1 ? intake2 : (weeklyIntakeValues[1]?.intake2 || 500),
-      dayGoal: todayIndex === 1 ? dailyGoal : (weeklyGoals[1] || 2.5)
+      dayGoal: todayIndex === 1 ? dailyGoal : (weeklyGoals[1] || defaultGoal)
     },
     { 
       day: 'Wed', 
       label: 'Wed', 
       intake: todayIndex === 2 ? currentIntake : (weeklyIntakeData[2] || 0), 
       isToday: todayIndex === 2, 
-      goalAchieved: todayIndex === 2 ? isGoalAchieved : (weeklyIntakeData[2] || 0) >= (weeklyGoals[2] || 2.5),
+      goalAchieved: todayIndex === 2 ? isGoalAchieved : (weeklyIntakeData[2] || 0) >= (weeklyGoals[2] || defaultGoal),
       intake1: todayIndex === 2 ? intake1 : (weeklyIntakeValues[2]?.intake1 || 250),
       intake2: todayIndex === 2 ? intake2 : (weeklyIntakeValues[2]?.intake2 || 500),
-      dayGoal: todayIndex === 2 ? dailyGoal : (weeklyGoals[2] || 2.5)
+      dayGoal: todayIndex === 2 ? dailyGoal : (weeklyGoals[2] || defaultGoal)
     },
     { 
       day: 'Thu', 
       label: 'Thu', 
       intake: todayIndex === 3 ? currentIntake : (weeklyIntakeData[3] || 0), 
       isToday: todayIndex === 3, 
-      goalAchieved: todayIndex === 3 ? isGoalAchieved : (weeklyIntakeData[3] || 0) >= (weeklyGoals[3] || 2.5),
+      goalAchieved: todayIndex === 3 ? isGoalAchieved : (weeklyIntakeData[3] || 0) >= (weeklyGoals[3] || defaultGoal),
       intake1: todayIndex === 3 ? intake1 : (weeklyIntakeValues[3]?.intake1 || 250),
       intake2: todayIndex === 3 ? intake2 : (weeklyIntakeValues[3]?.intake2 || 500),
-      dayGoal: todayIndex === 3 ? dailyGoal : (weeklyGoals[3] || 2.5)
+      dayGoal: todayIndex === 3 ? dailyGoal : (weeklyGoals[3] || defaultGoal)
     },
     { 
       day: 'Fri', 
       label: 'Fri', 
       intake: todayIndex === 4 ? currentIntake : (weeklyIntakeData[4] || 0), 
       isToday: todayIndex === 4, 
-      goalAchieved: todayIndex === 4 ? isGoalAchieved : (weeklyIntakeData[4] || 0) >= (weeklyGoals[4] || 2.5),
+      goalAchieved: todayIndex === 4 ? isGoalAchieved : (weeklyIntakeData[4] || 0) >= (weeklyGoals[4] || defaultGoal),
       intake1: todayIndex === 4 ? intake1 : (weeklyIntakeValues[4]?.intake1 || 250),
       intake2: todayIndex === 4 ? intake2 : (weeklyIntakeValues[4]?.intake2 || 500),
-      dayGoal: todayIndex === 4 ? dailyGoal : (weeklyGoals[4] || 2.5)
+      dayGoal: todayIndex === 4 ? dailyGoal : (weeklyGoals[4] || defaultGoal)
     },
     { 
       day: 'Sat', 
       label: 'Sat', 
       intake: todayIndex === 5 ? currentIntake : (weeklyIntakeData[5] || 0), 
       isToday: todayIndex === 5, 
-      goalAchieved: todayIndex === 5 ? isGoalAchieved : (weeklyIntakeData[5] || 0) >= (weeklyGoals[5] || 2.5),
+      goalAchieved: todayIndex === 5 ? isGoalAchieved : (weeklyIntakeData[5] || 0) >= (weeklyGoals[5] || defaultGoal),
       intake1: todayIndex === 5 ? intake1 : (weeklyIntakeValues[5]?.intake1 || 250),
       intake2: todayIndex === 5 ? intake2 : (weeklyIntakeValues[5]?.intake2 || 500),
-      dayGoal: todayIndex === 5 ? dailyGoal : (weeklyGoals[5] || 2.5)
+      dayGoal: todayIndex === 5 ? dailyGoal : (weeklyGoals[5] || defaultGoal)
     },
     { 
       day: 'Sun', 
       label: 'Sun', 
       intake: todayIndex === 6 ? currentIntake : (weeklyIntakeData[6] || 0), 
       isToday: todayIndex === 6, 
-      goalAchieved: todayIndex === 6 ? isGoalAchieved : (weeklyIntakeData[6] || 0) >= (weeklyGoals[6] || 2.5),
+      goalAchieved: todayIndex === 6 ? isGoalAchieved : (weeklyIntakeData[6] || 0) >= (weeklyGoals[6] || defaultGoal),
       intake1: todayIndex === 6 ? intake1 : (weeklyIntakeValues[6]?.intake1 || 250),
       intake2: todayIndex === 6 ? intake2 : (weeklyIntakeValues[6]?.intake2 || 500),
-      dayGoal: todayIndex === 6 ? dailyGoal : (weeklyGoals[6] || 2.5)
+      dayGoal: todayIndex === 6 ? dailyGoal : (weeklyGoals[6] || defaultGoal)
     }
-  ], [todayIndex, currentIntake, weeklyIntakeData, weeklyGoals, isGoalAchieved, intake1, intake2, weeklyIntakeValues]);
+  ], [todayIndex, currentIntake, weeklyIntakeData, weeklyGoals, isGoalAchieved, intake1, intake2, weeklyIntakeValues, defaultGoal]);
 
   const addWater = async (amount) => {
     const newIntake = Math.min(currentIntake + amount, dailyGoal);
@@ -707,6 +711,7 @@ const HydrationTrackerScreen = () => {
     if (!isNaN(newGoal) && newGoal > 0) {
       const oldGoal = dailyGoal;
       setDailyGoal(newGoal);
+      setDefaultGoal(newGoal); // Update the persistent default goal
       const adjustedIntake = Math.min(currentIntake, newGoal);
       setCurrentIntake(adjustedIntake);
       await updateDailyGoal(newGoal);
@@ -720,6 +725,13 @@ const HydrationTrackerScreen = () => {
       } else {
         await updateGoalStatus('not achieved');
       }
+      
+      // Update cache with new default goal
+      globalHydrationCache.cachedData = {
+        ...globalHydrationCache.cachedData,
+        dailyGoal: newGoal,
+        defaultGoal: newGoal,
+      };
       
       setModalVisible(false);
     }
@@ -835,6 +847,9 @@ const HydrationTrackerScreen = () => {
       prevProps.data.day === nextProps.data.day
     );
   });
+
+  // Set display name for debugging
+  AnimatedBar.displayName = 'AnimatedBar';
 
   return (
     <View style={styles.container}>
@@ -961,7 +976,7 @@ const HydrationTrackerScreen = () => {
                   : 'Keep going!'
                 }
               </Text>
-              <Text style={styles.quote}>"Consistent hydration improves skin & mood"</Text>
+              <Text style={styles.quote}>&quot;Consistent hydration improves skin &amp; mood&quot;</Text>
             </View>
           </View>
         </View>

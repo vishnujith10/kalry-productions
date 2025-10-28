@@ -90,7 +90,32 @@ create policy "Users can upsert their own sleep goal"
   with check (auth.uid() = user_id); 
 
 -- =============================
--- Workout Tracking Tables
+-- Weight Tracking Tables
+-- =============================
+
+-- Weight logs table: stores individual weight entries per user
+CREATE TABLE IF NOT EXISTS public.weight_logs (
+    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    user_id UUID REFERENCES auth.users NOT NULL,
+    date DATE NOT NULL,
+    weight DECIMAL(8,2) NOT NULL,
+    note TEXT,
+    emoji TEXT DEFAULT '😊',
+    photo_url TEXT,
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT timezone('utc'::text, now()),
+    updated_at TIMESTAMP WITH TIME ZONE DEFAULT timezone('utc'::text, now())
+);
+
+-- Ensure one entry per user per day (optional constraint)
+CREATE UNIQUE INDEX IF NOT EXISTS unique_user_date_weight ON public.weight_logs (user_id, date);
+
+-- Enable RLS for weight_logs
+ALTER TABLE public.weight_logs ENABLE ROW LEVEL SECURITY;
+
+-- Create policy for weight_logs
+CREATE POLICY "Users can access their own weight logs" ON public.weight_logs
+    FOR ALL USING (auth.uid() = user_id) WITH CHECK (auth.uid() = user_id);
+
 -- =============================
 
 -- 1. Workouts table

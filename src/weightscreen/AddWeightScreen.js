@@ -60,34 +60,74 @@ const AddWeightScreen = ({ navigation }) => {
     let photo_url = null;
     if (newPhoto) {
       const fileExt = newPhoto.uri.split('.').pop();
-      const fileName = `${userId}_${Date.now()}.${fileExt}`;
-      const { data, error } = await supabase.storage.from('weight-photos').upload(fileName, {
-        uri: newPhoto.uri,
-        type: 'image/jpeg',
-        name: fileName,
-      });
-      if (error) {
+      const fileName = `weight-photos/${userId}_${Date.now()}.${fileExt}`;
+      
+      try {
+        // Read the file using fetch (same approach as PhotoCalorieScreen)
+        const response = await fetch(newPhoto.uri);
+        const arrayBuffer = await response.arrayBuffer();
+        
+        const { error: uploadError } = await supabase.storage
+          .from('weight-photos') // Correct bucket name with hyphen
+          .upload(fileName, arrayBuffer, {
+            contentType: 'image/jpeg',
+            upsert: false
+          });
+          
+        if (uploadError) {
+          console.error('Photo upload error:', uploadError);
+          console.error('Upload details:', {
+            bucket: 'weight-photos',
+            fileName: fileName,
+            fileSize: arrayBuffer.byteLength,
+            error: uploadError
+          });
+          Alert.alert('Photo upload failed', uploadError.message);
+          setUploading(false);
+          return;
+        }
+        
+        // Store storage path; display layer will generate signed URL like PhotoCalorie flow
+        photo_url = fileName;
+        console.log('Photo uploaded successfully:', {
+          fileName: fileName,
+          photo_url: photo_url,
+          bucket: 'weight-photos'
+        });
+      } catch (error) {
+        console.error('Photo upload error:', error);
+        Alert.alert('Photo upload failed', 'Failed to upload photo');
         setUploading(false);
-        Alert.alert('Photo upload failed', error.message);
         return;
       }
-      photo_url = data?.path ? supabase.storage.from('weight-photos').getPublicUrl(data.path).publicUrl : null;
     }
     const today = new Date().toISOString().slice(0, 10);
     let weightValue = parseFloat(cleanedWeight);
     // Convert to kg if user's unit is lbs
     if (userWeightUnit === 'lbs') weightValue = (weightValue / 2.20462).toFixed(2);
-    const { data: insertData, error: insertError } = await supabase.from('weight_logs').insert([
-      {
-        user_id: userId,
-        date: today,
-        weight: weightValue,
-        note: newNote,
-        emoji: newEmoji,
-        photo_url,
-      }
-    ]);
-    console.log('Insert result:', insertData, insertError);
+    const { data: insertedRow, error: insertError } = await supabase
+      .from('weight_logs')
+      .insert([
+        {
+          user_id: userId,
+          date: today,
+          weight: weightValue,
+          note: newNote,
+          emoji: newEmoji,
+          photo_url,
+        }
+      ])
+      .select('*')
+      .single();
+    console.log('Insert result:', insertedRow, insertError);
+    console.log('Inserted data:', {
+      user_id: userId,
+      date: today,
+      weight: weightValue,
+      note: newNote,
+      emoji: newEmoji,
+      photo_url: photo_url,
+    });
     if (insertError) {
       setUploading(false);
       Alert.alert('Error', insertError.message);
@@ -119,12 +159,13 @@ const AddWeightScreen = ({ navigation }) => {
       
       // Update WeightTrackerScreen cache
       const newLog = {
+        id: insertedRow?.id, // ensure id exists for deletion later
         user_id: userId,
         date: today,
         weight: weightValue,
         note: newNote,
         emoji: newEmoji,
-        photo_url,
+        photo_url, // already a public URL
       };
       
       // Access the global cache from WeightTrackerScreen

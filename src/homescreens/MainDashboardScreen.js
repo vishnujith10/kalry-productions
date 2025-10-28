@@ -285,6 +285,7 @@ const MainDashboardScreen = ({ route }) => {
   const [currentWeight, setCurrentWeight] = useState(null);
   const [goalWeight, setGoalWeight] = useState(null);
   const [progress, setProgress] = useState(0);
+  const [goalAchieved, setGoalAchieved] = useState(false);
 
   const [realUserId, setRealUserId] = useState(null);
   
@@ -351,13 +352,36 @@ const MainDashboardScreen = ({ route }) => {
           const start = Number(profile.weight) || latestWeight;
           const goal = Number(profile.target_weight);
           let prog = 0;
+          
+          console.log('Weight Progress Debug:', {
+            start,
+            current: latestWeight,
+            goal,
+            startWeight: profile.weight
+          });
+          
           if (start !== goal) {
-            prog = (start - latestWeight) / (start - goal);
+            // Calculate progress as simple percentage of goal achievement
+            // This shows how close you are to your goal weight
+            prog = latestWeight / goal;
+            
+            // Clamp between 0 and 1 for bar display
             prog = Math.max(0, Math.min(1, prog));
+          } else {
+            // If start equals goal, we're at 100% progress
+            prog = 1;
           }
+          
+          console.log('Calculated progress:', prog, 'Percentage:', Math.round(prog * 100) + '%');
+          
           setProgress(prog);
+          
+          // Check if goal is achieved
+          const isGoalAchieved = prog >= 1;
+          setGoalAchieved(isGoalAchieved);
         } else {
           setProgress(0);
+          setGoalAchieved(false);
         }
       };
       fetchWeightData();
@@ -1084,7 +1108,9 @@ const MainDashboardScreen = ({ route }) => {
                 activeOpacity={0.8}
               >
                 <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 6 }}>
-                  <Ionicons name="home-outline" size={20} color="#FF9100" style={{ marginRight: 8 }} />
+                  <View style={styles.fireIconContainer}>
+                    <MaterialCommunityIcons name="fire" size={28} color="#FF6B35" />
+                  </View>
                   <Text style={styles.statLabelCustom}>Calories{`\n`}Today</Text>
                 </View>
                 <Text style={styles.statValueCustom2}>{calories} / {calorie_goal}</Text>
@@ -1100,7 +1126,7 @@ const MainDashboardScreen = ({ route }) => {
                   <MaterialCommunityIcons name="dumbbell" size={20} color="#3B82F6" style={{ marginRight: 8 }} />
                   <Text style={styles.statLabelCustom}>Strength{`\n`}Today</Text>
                 </View>
-                <Text style={[styles.statValueCustom, { textAlign: 'center' }]}>{todayWorkouts}</Text>
+                <Text style={[styles.statValueCustom, { textAlign: 'left' }]}> {`\t`} {todayWorkouts}</Text>
                 <Text style={styles.statSubCustom}>workouts this Day</Text>
               </TouchableOpacity>
             </View>
@@ -1285,8 +1311,25 @@ const MainDashboardScreen = ({ route }) => {
               </View>
             </View>
             <View style={styles.weightJourneyBarBgV2}>
-              <View style={[styles.weightJourneyBarFillV2, { width: `${Math.round(progress * 100)}%` }]} />
+              <View style={[
+                styles.weightJourneyBarFillV2, 
+                { 
+                  width: `${Math.max(2, Math.round(progress * 100))}%` // Show actual progress percentage
+                }
+              ]} />
             </View>
+            {goalAchieved ? (
+              <View style={styles.congratulationsContainer}>
+                <Text style={styles.congratulationsText}>🎉 Congratulations! Goal Achieved! 🎉</Text>
+                <Text style={styles.progressText}>
+                  You&apos;ve reached your target weight of {goalWeight} kg!
+                </Text>
+              </View>
+            ) : (
+              <Text style={styles.progressText}>
+                {Math.round(progress * 100)}% towards goal
+              </Text>
+            )}
             <TouchableOpacity style={styles.weightJourneyBtnV2} onPress={() => navigation.navigate('WeightTrackerScreen')}>
               <Text style={styles.weightJourneyBtnTextV2}>View Progress</Text>
             </TouchableOpacity>
@@ -2047,6 +2090,14 @@ const styles = StyleSheet.create({
     backgroundColor: COLORS.primary,
     borderRadius: 6,
   },
+  weightJourneyBarBehind: {
+    height: 10,
+    backgroundColor: '#EF4444', // Red color for behind goal
+    borderRadius: 6,
+    position: 'absolute',
+    left: 0,
+    top: 0,
+  },
   weightJourneyBtnV2: {
     borderWidth: 2,
     borderColor: COLORS.primary,
@@ -2266,6 +2317,42 @@ const styles = StyleSheet.create({
     fontSize: 16,
     fontFamily: 'Lexend-SemiBold',
     color: '#FFFFFF',
+  },
+  fireIconContainer: {
+    position: 'relative',
+    marginRight: 8,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  kcalText: {
+    position: 'absolute',
+    fontSize: 10,
+    fontFamily: 'Lexend-Bold',
+    color: '#FFFFFF',
+    fontWeight: 'bold',
+    textShadowColor: 'rgba(0, 0, 0, 0.5)',
+    textShadowOffset: { width: 0, height: 1 },
+    textShadowRadius: 1,
+  },
+  progressText: {
+    fontSize: 12,
+    fontFamily: 'Manrope-Medium',
+    color: '#666',
+    textAlign: 'center',
+    marginTop: 4,
+    marginBottom: 8,
+  },
+  congratulationsContainer: {
+    alignItems: 'center',
+    marginTop: 4,
+    marginBottom: 8,
+  },
+  congratulationsText: {
+    fontSize: 14,
+    fontFamily: 'Lexend-Bold',
+    color: '#10B981',
+    textAlign: 'center',
+    marginBottom: 4,
   },
 });
 

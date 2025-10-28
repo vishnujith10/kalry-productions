@@ -5,6 +5,7 @@ import {
   Alert,
   Dimensions,
   FlatList,
+  Image,
   Alert as RNAlert,
   StyleSheet,
   Text,
@@ -177,6 +178,123 @@ const generateWeightInsights = (logs, profile) => {
   return insights;
 };
 
+// Weight Log Item Component
+const WeightLogItem = ({ item, index, logs, weightData, handleDeleteLog, handleDeleteLogByDate }) => {
+  const [imageUrl, setImageUrl] = useState(null);
+  
+  useEffect(() => {
+    if (!item.photo_url) {
+      setImageUrl(null);
+      return;
+    }
+    // If already a full URL, use directly. Otherwise, create signed URL for authenticated bucket
+    if (item.photo_url.startsWith('http')) {
+      setImageUrl(item.photo_url);
+      return;
+    }
+    const createSignedUrl = async () => {
+      try {
+        const { data, error } = await supabase.storage
+          .from('weight-photos')
+          .createSignedUrl(item.photo_url, 60 * 60 * 24 * 365); // 1 year expiry
+        if (error) {
+          console.log('Signed URL error:', error);
+          // Try fallback with public URL (in case bucket becomes public later)
+          const publicUrl = supabase.storage.from('weight-photos').getPublicUrl(item.photo_url).publicUrl;
+          setImageUrl(publicUrl || null);
+        } else {
+          setImageUrl(data?.signedUrl || null);
+        }
+      } catch (err) {
+        console.log('Signed URL generation failed:', err);
+        // Try fallback with public URL
+        const publicUrl = supabase.storage.from('weight-photos').getPublicUrl(item.photo_url).publicUrl;
+        setImageUrl(publicUrl || null);
+      }
+    };
+    createSignedUrl();
+  }, [item.photo_url]);
+  
+  // Calculate weight change from previous entry
+  const previousWeight = index < logs.length - 1 ? logs[index + 1]?.weight : null;
+  const weightChange = previousWeight ? (Number(item.weight) - Number(previousWeight)) : 0;
+  const isWeightLoss = weightChange < 0;
+  
+  return (
+    <View style={styles.historyItem}>
+      <View style={styles.historyItemContent}>
+        {/* Image placeholder on the left */}
+        <View style={styles.imagePlaceholder}>
+          {imageUrl ? (
+            <Image 
+              source={{ uri: imageUrl }} 
+              style={styles.historyImage}
+              resizeMode="cover"
+                onError={(error) => {
+                  console.log('Image load error:', error);
+                  console.log('Image URL:', imageUrl);
+                  console.log('Original URL:', item.photo_url);
+                }}
+              onLoad={() => {
+                console.log('Image loaded successfully:', imageUrl);
+              }}
+            />
+          ) : (
+            <Ionicons name="camera" size={24} color="#9CA3AF" />
+          )}
+        </View>
+        
+        {/* Weight details in the middle */}
+        <View style={styles.weightDetails}>
+          <Text style={styles.historyWeight}>
+            {Number(item.weight).toFixed(1)} {weightData.weightUnit}
+          </Text>
+          <Text style={styles.historyDate}>{formatDate(item.date)}</Text>
+          {item.note ? (
+            <Text style={styles.historyNote}>{item.note}</Text>
+          ) : (
+            <Text style={styles.historyNote}>{item.emoji || "😊"} Feeling great!</Text>
+          )}
+        </View>
+        
+        {/* Weight change on the right */}
+        <View style={styles.weightChangeContainer}>
+          {weightChange !== 0 && (
+            <Text style={[
+              styles.weightChangeText,
+              { color: isWeightLoss ? ACCENT_GREEN : ACCENT_RED }
+            ]}>
+              {isWeightLoss ? '' : '+'}{weightChange.toFixed(1)} {weightData.weightUnit}
+            </Text>
+          )}
+          <TouchableOpacity
+            onPress={() => {
+              console.log('Delete button pressed for item:', item);
+              console.log('Item ID:', item.id);
+              console.log('Item ID type:', typeof item.id);
+              console.log('Item user_id:', item.user_id);
+              console.log('Item date:', item.date);
+              
+              if (item.id) {
+                handleDeleteLog(item.id);
+              } else if (item.user_id && item.date) {
+                // Fallback: use user_id and date combination
+                console.log('Using fallback delete with user_id and date');
+                handleDeleteLogByDate(item.user_id, item.date);
+              } else {
+                Alert.alert('Error', `Cannot delete entry - missing ID. Available fields: ${Object.keys(item).join(', ')}`);
+              }
+            }}
+            style={styles.deleteButton}
+          >
+            <Ionicons name="trash" size={18} color="#9CA3AF" />
+          </TouchableOpacity>
+        </View>
+      </View>
+    </View>
+  );
+};
+
 const WeightTrackerScreen = ({ navigation }) => {
   const { onboardingData, setOnboardingData } = useContext(OnboardingContext);
   
@@ -255,6 +373,8 @@ const WeightTrackerScreen = ({ navigation }) => {
       }
       
       if (!logsError && logsData) {
+        console.log('Raw logs data from database:', logsData);
+        console.log('First log item fields:', logsData[0] ? Object.keys(logsData[0]) : 'No logs');
         updates.logs = logsData;
         
         // Only create goal engine and analysis if data exists
@@ -297,7 +417,7 @@ const WeightTrackerScreen = ({ navigation }) => {
     } finally {
       globalWeightCache.isFetching = false;
     }
-  }, [userId, logs, userProfile, setOnboardingData]);
+  }, [userId, setOnboardingData]);
 
   // Optimized useFocusEffect with proper caching
   useFocusEffect(
@@ -492,6 +612,14 @@ const WeightTrackerScreen = ({ navigation }) => {
 
   // Memoized delete handler
   const handleDeleteLog = useCallback(async (logId) => {
+    console.log('handleDeleteLog called with logId:', logId);
+    console.log('logId type:', typeof logId);
+    
+    if (!logId) {
+      Alert.alert("Error", "Cannot delete entry - missing ID");
+      return;
+    }
+    
     RNAlert.alert(
       "Delete Entry",
       "Are you sure you want to delete this weight entry?",
@@ -502,18 +630,61 @@ const WeightTrackerScreen = ({ navigation }) => {
           style: "destructive",
           onPress: async () => {
             try {
+              console.log('Attempting to delete log with ID:', logId);
               const { error } = await supabase
                 .from("weight_logs")
                 .delete()
                 .eq("id", logId);
               if (error) {
+                console.error('Delete error:', error);
                 Alert.alert("Error", error.message);
               } else {
+                console.log('Successfully deleted log');
                 // Clear cache and refresh
                 globalWeightCache.lastFetchTime = 0;
                 setRefreshing((r) => !r);
               }
-            } catch (error) {
+            } catch (err) {
+              console.error('Delete exception:', err);
+              Alert.alert("Error", "Failed to delete entry");
+            }
+          },
+        },
+      ]
+    );
+  }, []);
+
+  // Fallback delete handler using user_id and date
+  const handleDeleteLogByDate = useCallback(async (userId, date) => {
+    console.log('handleDeleteLogByDate called with userId:', userId, 'date:', date);
+    
+    RNAlert.alert(
+      "Delete Entry",
+      "Are you sure you want to delete this weight entry?",
+      [
+        { text: "Cancel", style: "cancel" },
+        {
+          text: "Delete",
+          style: "destructive",
+          onPress: async () => {
+            try {
+              console.log('Attempting to delete log with userId and date:', userId, date);
+              const { error } = await supabase
+                .from("weight_logs")
+                .delete()
+                .eq("user_id", userId)
+                .eq("date", date);
+              if (error) {
+                console.error('Delete error:', error);
+                Alert.alert("Error", error.message);
+              } else {
+                console.log('Successfully deleted log by date');
+                // Clear cache and refresh
+                globalWeightCache.lastFetchTime = 0;
+                setRefreshing((r) => !r);
+              }
+            } catch (err) {
+              console.error('Delete exception:', err);
               Alert.alert("Error", "Failed to delete entry");
             }
           },
@@ -653,37 +824,35 @@ const WeightTrackerScreen = ({ navigation }) => {
   ), [weightData, chartData, trendAnalysis, weightInsights]);
 
   // Memoized render item for FlatList
-  const renderLogItem = useCallback(({ item }) => (
-    <View style={styles.historyItem}>
-      <View
-        style={{
-          flexDirection: "row",
-          alignItems: "center",
-          justifyContent: "space-between",
-        }}
-      >
-        <View style={{ flexDirection: "row", alignItems: "center" }}>
-          <Text style={styles.historyDate}>{formatDate(item.date)}</Text>
-          <Text style={styles.historyEmoji}>{item.emoji || "😊"}</Text>
-        </View>
-        <Text style={styles.historyWeight}>
-          {Number(item.weight).toFixed(1)} {weightData.weightUnit}
-        </Text>
-        <TouchableOpacity
-          onPress={() => handleDeleteLog(item.id)}
-          style={{ marginLeft: 10 }}
-        >
-          <Ionicons name="trash" size={20} color={ACCENT_RED} />
-        </TouchableOpacity>
-      </View>
-      {item.note ? (
-        <Text style={styles.historyNote}>{item.note}</Text>
-      ) : null}
-    </View>
-  ), [weightData.weightUnit, handleDeleteLog]);
+  const renderLogItem = useCallback(({ item, index }) => {
+    // Debug logging for image_url
+    console.log('Rendering weight log item:', {
+      id: item.id,
+      weight: item.weight,
+      photo_url: item.photo_url,
+      date: item.date,
+      fullItem: item // Log the entire item to see all fields
+    });
+    
+    return (
+      <WeightLogItem 
+        item={item} 
+        index={index} 
+        logs={logs} 
+        weightData={weightData} 
+        handleDeleteLog={handleDeleteLog}
+        handleDeleteLogByDate={handleDeleteLogByDate}
+      />
+    );
+  }, [weightData, handleDeleteLog, handleDeleteLogByDate, logs]);
 
   // Memoized key extractor
-  const keyExtractor = useCallback((item) => item.id?.toString() || item.date, []);
+  const keyExtractor = useCallback((item) => {
+    console.log('KeyExtractor - item:', item);
+    console.log('KeyExtractor - item.id:', item.id);
+    console.log('KeyExtractor - item.date:', item.date);
+    return item.id?.toString() || item.date || `fallback-${Math.random()}`;
+  }, []);
 
   // Memoized empty component
   const ListEmptyComponent = useMemo(() => (
@@ -816,30 +985,73 @@ const styles = StyleSheet.create({
   },
   historyItem: {
     backgroundColor: WHITE,
-    borderRadius: 14,
-    padding: 14,
-    marginBottom: 10,
+    borderRadius: 16,
+    padding: 16,
+    marginBottom: 12,
+    shadowColor: "#000",
+    shadowOpacity: 0.05,
+    shadowRadius: 8,
+    shadowOffset: { width: 0, height: 2 },
+    elevation: 2,
     borderWidth: 1,
-    borderColor: CARD_BG,
+    borderColor: "#F3F4F6",
   },
-  historyDate: {
-    fontSize: 16,
-    color: PRIMARY,
-    fontFamily: "Manrope-Bold",
-    marginRight: 8,
+  historyItemContent: {
+    flexDirection: "row",
+    alignItems: "center",
+  },
+  imagePlaceholder: {
+    width: 60,
+    height: 60,
+    borderRadius: 12,
+    backgroundColor: "#F9FAFB",
+    alignItems: "center",
+    justifyContent: "center",
+    marginRight: 16,
+    borderWidth: 1,
+    borderColor: "#E5E7EB",
+  },
+  historyImage: {
+    width: 60,
+    height: 60,
+    borderRadius: 12,
+  },
+  weightDetails: {
+    flex: 1,
+    justifyContent: "center",
   },
   historyWeight: {
-    fontSize: 18,
-    color: PRIMARY,
+    fontSize: 24,
+    fontWeight: "700",
+    color: "#1F2937",
     fontFamily: "Lexend-Bold",
-    marginLeft: 8,
+    marginBottom: 4,
   },
-  historyEmoji: { fontSize: 20, marginLeft: 4 },
+  historyDate: {
+    fontSize: 14,
+    color: "#6B7280",
+    fontFamily: "Manrope-Regular",
+    marginBottom: 4,
+  },
   historyNote: {
     fontSize: 14,
-    color: GRAY,
-    marginTop: 2,
+    color: "#374151",
     fontFamily: "Manrope-Regular",
+  },
+  weightChangeContainer: {
+    alignItems: "flex-end",
+    justifyContent: "space-between",
+    height: 60,
+  },
+  weightChangeText: {
+    fontSize: 16,
+    fontWeight: "700",
+    fontFamily: "Lexend-Bold",
+  },
+  deleteButton: {
+    padding: 4,
+    borderRadius: 8,
+    backgroundColor: "#F9FAFB",
   },
   emptyHistory: {
     color: GRAY,

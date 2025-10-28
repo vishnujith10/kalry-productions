@@ -432,6 +432,16 @@ export class ContextualPersonalizationEngine {
   }
 
   selectWorkoutForContext(baseWorkout, context) {
+    // Provide default workout if baseWorkout is undefined
+    const defaultWorkout = {
+      type: 'general',
+      duration: 30,
+      intensity: 'medium',
+      message: 'Standard workout for today'
+    };
+    
+    const workout = baseWorkout || defaultWorkout;
+
     // Sick = rest
     if (context.activeProfiles.includes('sick')) {
       return {
@@ -463,11 +473,14 @@ export class ContextualPersonalizationEngine {
 
     // Adjust intensity based on energy
     const energyMultiplier = context.adjustments.energyMultiplier || 1.0;
-    const adjustedWorkout = { ...baseWorkout };
+    const adjustedWorkout = { ...workout };
 
     if (energyMultiplier < 0.7) {
       adjustedWorkout.intensity = 'light';
-      adjustedWorkout.duration = Math.round(baseWorkout.duration * 0.7);
+      // Only adjust duration if workout has a duration property
+      if (workout && workout.duration) {
+        adjustedWorkout.duration = Math.round(workout.duration * 0.7);
+      }
       adjustedWorkout.message = 'Low energy day—we\'ve lightened your workout';
     } else if (energyMultiplier > 1.1) {
       adjustedWorkout.intensity = 'high';
