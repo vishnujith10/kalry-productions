@@ -40,8 +40,7 @@ const AddWeightScreen = ({ navigation }) => {
   async function pickPhoto() {
     const result = await ImagePicker.launchImageLibraryAsync({
       mediaTypes: ImagePicker.MediaTypeOptions.Images,
-      allowsEditing: true,
-      aspect: [1, 1],
+      allowsEditing: false, // Disable crop to avoid black screen issue
       quality: 0.7,
     });
     if (!result.canceled && result.assets && result.assets.length > 0) {
@@ -215,8 +214,12 @@ const AddWeightScreen = ({ navigation }) => {
         <Text style={styles.sectionLabel}>Add a progress photo</Text>
         <View style={styles.photoUploadBoxDashed}>
           {newPhoto ? (
-            <TouchableOpacity onPress={pickPhoto}>
-              <Image source={{ uri: newPhoto.uri }} style={styles.uploadedPhoto} />
+            <TouchableOpacity onPress={pickPhoto} style={{ width: '100%' }}>
+              <Image 
+                source={{ uri: newPhoto.uri }} 
+                style={styles.uploadedPhoto}
+                resizeMode="cover"
+              />
             </TouchableOpacity>
           ) : (
             <TouchableOpacity style={styles.uploadBoxInner} onPress={pickPhoto}>
@@ -277,9 +280,9 @@ const styles = StyleSheet.create({
   },
   weightInput: { borderWidth: 0, backgroundColor: '#ECE7F7', borderRadius: 16, padding: 18, fontFamily: 'Manrope-Regular', fontSize: 18, color: '#7B61FF', width: '100%', marginBottom: 16 },
   sectionLabel: { fontSize: 18, fontFamily: 'Lexend-Bold', color: '#111', marginBottom: 8, marginTop: 18 },
-  photoUploadBoxDashed: { borderWidth: 2, borderColor: '#D1C7F7', borderStyle: 'dashed', borderRadius: 16, padding: 24, marginBottom: 10, backgroundColor: '#F8F6FC', alignItems: 'center' },
+  photoUploadBoxDashed: { borderWidth: 2, borderColor: '#D1C7F7', borderStyle: 'dashed', borderRadius: 16, padding: 24, marginBottom: 10, backgroundColor: '#F8F6FC', alignItems: 'center', minHeight: 250, justifyContent: 'center' },
   uploadBoxInner: { flex: 1, justifyContent: 'center', alignItems: 'center' },
-  uploadedPhoto: { width: 120, height: 120, borderRadius: 16, marginVertical: 8 },
+  uploadedPhoto: { width: '100%', height: 200, borderRadius: 16, marginVertical: 8 },
   uploadPhotoTitle: { fontSize: 20, fontFamily: 'Lexend-Bold', color: '#111', marginBottom: 4, textAlign: 'center' },
   uploadPhotoDesc: { fontSize: 15, fontFamily: 'Manrope-Regular', color: '#444', textAlign: 'center', marginBottom: 12 },
   uploadBtn: { padding: 10, backgroundColor: '#ECE7F7', borderRadius: 24, minWidth: 100, alignItems: 'center' },

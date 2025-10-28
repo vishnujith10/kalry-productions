@@ -640,9 +640,39 @@ const WeightTrackerScreen = ({ navigation }) => {
                 Alert.alert("Error", error.message);
               } else {
                 console.log('Successfully deleted log');
-                // Clear cache and refresh
-                globalWeightCache.lastFetchTime = 0;
-                setRefreshing((r) => !r);
+                
+                // Optimistically update UI by removing the deleted entry
+                const updatedLogs = logs.filter(log => log.id !== logId);
+                setLogs(updatedLogs);
+                
+                // Update user profile with the new current weight (most recent after deletion)
+                if (updatedLogs.length > 0) {
+                  const newCurrentWeight = Number(updatedLogs[0].weight);
+                  setUserProfile(prev => ({
+                    ...prev,
+                    weight: newCurrentWeight
+                  }));
+                  
+                  // Update cache
+                  globalWeightCache.cachedData = {
+                    logs: updatedLogs,
+                    userProfile: { ...userProfile, weight: newCurrentWeight }
+                  };
+                  
+                  // Also update MainDashboard cache
+                  try {
+                    const { getMainDashboardCache } = require('../utils/cacheManager');
+                    const mainCache = getMainDashboardCache();
+                    if (mainCache.cachedData) {
+                      mainCache.cachedData.currentWeight = newCurrentWeight;
+                      mainCache.lastFetchTime = Date.now();
+                    }
+                  } catch (err) {
+                    console.log('Failed to update MainDashboard cache:', err);
+                  }
+                }
+                
+                globalWeightCache.lastFetchTime = Date.now();
               }
             } catch (err) {
               console.error('Delete exception:', err);
@@ -652,7 +682,7 @@ const WeightTrackerScreen = ({ navigation }) => {
         },
       ]
     );
-  }, []);
+  }, [logs, userProfile]);
 
   // Fallback delete handler using user_id and date
   const handleDeleteLogByDate = useCallback(async (userId, date) => {
@@ -679,9 +709,39 @@ const WeightTrackerScreen = ({ navigation }) => {
                 Alert.alert("Error", error.message);
               } else {
                 console.log('Successfully deleted log by date');
-                // Clear cache and refresh
-                globalWeightCache.lastFetchTime = 0;
-                setRefreshing((r) => !r);
+                
+                // Optimistically update UI by removing the deleted entry
+                const updatedLogs = logs.filter(log => !(log.user_id === userId && log.date === date));
+                setLogs(updatedLogs);
+                
+                // Update user profile with the new current weight (most recent after deletion)
+                if (updatedLogs.length > 0) {
+                  const newCurrentWeight = Number(updatedLogs[0].weight);
+                  setUserProfile(prev => ({
+                    ...prev,
+                    weight: newCurrentWeight
+                  }));
+                  
+                  // Update cache
+                  globalWeightCache.cachedData = {
+                    logs: updatedLogs,
+                    userProfile: { ...userProfile, weight: newCurrentWeight }
+                  };
+                  
+                  // Also update MainDashboard cache
+                  try {
+                    const { getMainDashboardCache } = require('../utils/cacheManager');
+                    const mainCache = getMainDashboardCache();
+                    if (mainCache.cachedData) {
+                      mainCache.cachedData.currentWeight = newCurrentWeight;
+                      mainCache.lastFetchTime = Date.now();
+                    }
+                  } catch (err) {
+                    console.log('Failed to update MainDashboard cache:', err);
+                  }
+                }
+                
+                globalWeightCache.lastFetchTime = Date.now();
               }
             } catch (err) {
               console.error('Delete exception:', err);
@@ -691,7 +751,7 @@ const WeightTrackerScreen = ({ navigation }) => {
         },
       ]
     );
-  }, []);
+  }, [logs, userProfile]);
 
   // Memoized navigation handler to prevent multiple modal opens
   const navigateToAddWeight = useCallback(() => {
