@@ -1,7 +1,7 @@
-// StepTrackerScreen.js - FIXED ICON NAME
-import { Ionicons, MaterialCommunityIcons } from '@expo/vector-icons';
+// StepTrackerScreen.js
+import { Ionicons } from '@expo/vector-icons';
 import React, { useEffect, useState } from 'react';
-import { Alert, Linking, Modal, Platform, ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native';
+import { Alert, Modal, ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native';
 import { SafeAreaProvider, SafeAreaView } from 'react-native-safe-area-context';
 import supabase from '../lib/supabase';
 import { getDailyGoal, setDailyGoal } from '../utils/goalStorage';
@@ -13,18 +13,13 @@ const StepTrackerScreen = ({ navigation }) => {
   const [showGoalModal, setShowGoalModal] = useState(false);
   const [newGoal, setNewGoal] = useState(10000);
   
-  // Enhanced hook with diagnostics
+  // Step counter hook
   const { 
     stepsToday, 
-    isPedometerAvailable, 
     distanceKm, 
-    calories, 
-    error, 
-    debugInfo,
-    diagnostics,
-    addTestSteps, 
-    resetSteps,
-    runFullDiagnostic
+    calories,
+    saveGoalToDatabase,
+    loadGoalFromDatabase
   } = useTodaySteps();
 
   // Get user ID
@@ -40,15 +35,27 @@ const StepTrackerScreen = ({ navigation }) => {
     getUserId();
   }, []);
 
-  // Load user's daily goal
+  // Load user's daily goal from database
   useEffect(() => {
     if (!userId) return;
     
     const loadGoal = async () => {
       try {
-        const savedGoal = await getDailyGoal(userId);
-        if (savedGoal) {
-          setGoal(savedGoal);
+        // Try loading from database first
+        const dbGoal = await loadGoalFromDatabase();
+        if (dbGoal) {
+          console.log('Loaded goal from database:', dbGoal);
+          setGoal(dbGoal);
+        } else {
+          // Fallback to AsyncStorage if not in database
+          const savedGoal = await getDailyGoal(userId);
+          if (savedGoal) {
+            setGoal(savedGoal);
+            // Save to database for future
+            saveGoalToDatabase(savedGoal).catch(err => 
+              console.log('Failed to save goal to DB:', err)
+            );
+          }
         }
       } catch (error) {
         console.error('Error loading goal:', error);
@@ -56,7 +63,7 @@ const StepTrackerScreen = ({ navigation }) => {
     };
     
     loadGoal();
-  }, [userId]);
+  }, [userId]); // Only depend on userId, not the functions
 
   const handleSaveGoal = async () => {
     if (!userId) {
@@ -64,19 +71,44 @@ const StepTrackerScreen = ({ navigation }) => {
       return;
     }
     
+    // Save to AsyncStorage first (always works, immediate)
     try {
-      const success = await setDailyGoal(userId, newGoal);
-      if (success) {
+      const localSuccess = await setDailyGoal(userId, newGoal);
+      
+      if (localSuccess) {
+        // Update UI state FIRST
         setGoal(newGoal);
-        setShowGoalModal(false);
-        Alert.alert('Success', 'Goal updated successfully!');
+        console.log('✅ Goal updated in UI:', newGoal);
+        
+        // Then close modal and show success
+        setTimeout(() => {
+          setShowGoalModal(false);
+          Alert.alert('Success', `Goal updated to ${newGoal.toLocaleString()} steps!`);
+        }, 100);
+        
+        console.log('✅ Goal saved locally:', newGoal);
       } else {
-        Alert.alert('Error', 'Failed to save goal. Please try again.');
+        Alert.alert('Error', 'Failed to save goal locally. Please try again.');
+        return;
       }
-    } catch (error) {
-      console.error('Error saving goal:', error);
+    } catch (localError) {
+      console.error('Error saving goal locally:', localError);
       Alert.alert('Error', 'Failed to save goal. Please try again.');
+      return;
     }
+    
+    // Try to save to database in background (don't block UI)
+    saveGoalToDatabase(newGoal)
+      .then((success) => {
+        if (success) {
+          console.log('✅ Goal saved to database:', newGoal);
+        } else {
+          console.log('⚠️ Database save failed (local save succeeded)');
+        }
+      })
+      .catch((dbError) => {
+        console.log('⚠️ Database save error (ignoring):', dbError.message || dbError);
+      });
   };
 
   const openGoalModal = () => {
@@ -86,15 +118,6 @@ const StepTrackerScreen = ({ navigation }) => {
 
   const percent = Math.min(Math.round((stepsToday / goal) * 100), 100);
 
-  // Open device settings
-  const openDeviceSettings = () => {
-    if (Platform.OS === 'android') {
-      Linking.openSettings();
-    } else {
-      Alert.alert('Settings', 'Please go to Settings > Privacy & Security > Motion & Fitness and enable for this app');
-    }
-  };
-
   return (
     <SafeAreaProvider>
       <SafeAreaView style={styles.container} edges={['top']}>
@@ -103,65 +126,12 @@ const StepTrackerScreen = ({ navigation }) => {
           <TouchableOpacity onPress={() => navigation.goBack()}>
             <Ionicons name="chevron-back" size={24} color="#1F2937" />
           </TouchableOpacity>
-          <Text style={styles.headerTitle}>Step Counter Diagnostic</Text>
-          <TouchableOpacity onPress={runFullDiagnostic}>
-            <MaterialCommunityIcons name="stethoscope" size={24} color="#7B61FF" />
-          </TouchableOpacity>
+          <Text style={styles.headerTitle}>Step Counter</Text>
+          <View style={{ width: 24 }} />
         </View>
 
         <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={styles.scrollContent}>
           
-          {/* SIMPLIFIED DIAGNOSTIC PANEL */}
-          <View style={styles.diagnosticCard}>
-            <Text style={styles.diagnosticTitle}>🔍 Step Counter Diagnostics</Text>
-            
-            <View style={styles.diagnosticGrid}>
-              <View style={styles.diagnosticItem}>
-                <Text style={styles.diagnosticLabel}>Platform</Text>
-                <Text style={styles.diagnosticValue}>{Platform.OS}</Text>
-              </View>
-              
-              <View style={styles.diagnosticItem}>
-                <Text style={styles.diagnosticLabel}>Pedometer Support</Text>
-                <Text style={[styles.diagnosticValue, {color: diagnostics.pedometerSupported ? '#22C55E' : '#DC2626'}]}>
-                  {diagnostics.pedometerSupported ? '✅ Yes' : '❌ No'}
-                </Text>
-              </View>
-              
-              <View style={styles.diagnosticItem}>
-                <Text style={styles.diagnosticLabel}>Permissions</Text>
-                <Text style={[styles.diagnosticValue, {color: diagnostics.permissionsGranted ? '#22C55E' : '#DC2626'}]}>
-                  {diagnostics.permissionsGranted ? '✅ Granted' : '❌ Denied'}
-                </Text>
-              </View>
-              
-              <View style={styles.diagnosticItem}>
-                <Text style={styles.diagnosticLabel}>Sensor Active</Text>
-                <Text style={[styles.diagnosticValue, {color: diagnostics.sensorActive ? '#22C55E' : '#F59E0B'}]}>
-                  {diagnostics.sensorActive ? '🟢 Active' : '🟡 Inactive'}
-                </Text>
-              </View>
-              
-              <View style={styles.diagnosticItem}>
-                <Text style={styles.diagnosticLabel}>Total Events</Text>
-                <Text style={[styles.diagnosticValue, {color: diagnostics.totalEvents > 0 ? '#22C55E' : '#DC2626'}]}>
-                  {diagnostics.totalEvents}
-                </Text>
-              </View>
-              
-              <View style={styles.diagnosticItem}>
-                <Text style={styles.diagnosticLabel}>Last Event</Text>
-                <Text style={styles.diagnosticValue}>{diagnostics.lastEventTime || 'None'}</Text>
-              </View>
-            </View>
-
-            <Text style={styles.statusText}>Status: {debugInfo}</Text>
-            
-            {error && (
-              <Text style={styles.errorText}>Error: {error}</Text>
-            )}
-          </View>
-
           {/* STEP COUNTER DISPLAY */}
           <View style={styles.overviewCard}>
             <View style={styles.progressSection}>
@@ -193,10 +163,6 @@ const StepTrackerScreen = ({ navigation }) => {
                 <View style={styles.progressBar}>
                   <View style={[styles.progressFill, { width: `${percent}%` }]} />
                 </View>
-                
-                <Text style={styles.liveStatus}>
-                  📡 {debugInfo}
-                </Text>
               </View>
             </View>
 
@@ -213,76 +179,6 @@ const StepTrackerScreen = ({ navigation }) => {
                 <Text style={styles.statValue}>{goal.toLocaleString()}</Text>
                 <Text style={styles.statLabel}>Goal</Text>
               </View>
-            </View>
-          </View>
-
-          {/* TESTING & TROUBLESHOOTING */}
-          <View style={styles.testingCard}>
-            <Text style={styles.testingTitle}>🧪 Testing & Troubleshooting</Text>
-            
-            <View style={styles.testingButtons}>
-              <TouchableOpacity 
-                style={styles.testButton} 
-                onPress={() => addTestSteps(1)}
-              >
-                <Text style={styles.testButtonText}>+1</Text>
-              </TouchableOpacity>
-              <TouchableOpacity 
-                style={styles.testButton} 
-                onPress={() => addTestSteps(10)}
-              >
-                <Text style={styles.testButtonText}>+10</Text>
-              </TouchableOpacity>
-              <TouchableOpacity 
-                style={styles.testButton} 
-                onPress={() => addTestSteps(100)}
-              >
-                <Text style={styles.testButtonText}>+100</Text>
-              </TouchableOpacity>
-              <TouchableOpacity 
-                style={[styles.testButton, {backgroundColor: '#DC2626'}]} 
-                onPress={resetSteps}
-              >
-                <Text style={styles.testButtonText}>Reset</Text>
-              </TouchableOpacity>
-            </View>
-
-            <View style={styles.troubleshootingSection}>
-              <Text style={styles.troubleshootingTitle}>📋 Walking Test Instructions:</Text>
-              <Text style={styles.troubleshootingText}>1. Keep this app open and screen on</Text>
-              <Text style={styles.troubleshootingText}>2. Hold phone naturally in your hand</Text>
-              <Text style={styles.troubleshootingText}>3. Walk continuously for 30+ steps</Text>
-              <Text style={styles.troubleshootingText}>4. Walk at normal pace (not too slow/fast)</Text>
-              <Text style={styles.troubleshootingText}>5. Check console for "🎉 VALID STEP DETECTED"</Text>
-              <Text style={styles.troubleshootingText}>6. Watch "Total Events" counter above</Text>
-
-              {!diagnostics.pedometerSupported && (
-                <TouchableOpacity style={styles.settingsButton} onPress={openDeviceSettings}>
-                  <Text style={styles.settingsButtonText}>📱 Open Device Settings</Text>
-                </TouchableOpacity>
-              )}
-
-              {diagnostics.totalEvents === 0 && diagnostics.pedometerSupported && (
-                <View style={styles.warningBox}>
-                  <Text style={styles.warningText}>
-                    ⚠️ No sensor events detected. Try:
-                    {'\n'}• Restarting the app
-                    {'\n'}• Checking device settings
-                    {'\n'}• Walking with phone in different positions
-                    {'\n'}• Use test buttons to verify UI works
-                  </Text>
-                </View>
-              )}
-
-              {diagnostics.totalEvents > 0 && stepsToday === 0 && (
-                <View style={styles.infoBox}>
-                  <Text style={styles.infoText}>
-                    ℹ️ Sensor is working (events: {diagnostics.totalEvents}) but steps are filtered.
-                    {'\n'}This means the sensor detects movement but it's not qualifying as "steps".
-                    {'\n'}Try walking more consistently or use test buttons.
-                  </Text>
-                </View>
-              )}
             </View>
           </View>
 
@@ -305,7 +201,7 @@ const StepTrackerScreen = ({ navigation }) => {
               <Text style={styles.modalTitle}>Set Daily Step Goal</Text>
               
               <View style={styles.goalOptions}>
-                {[5000, 7500, 10000, 12500, 15000].map(opt => (
+                {[5000, 7500, 10000, 13000, 15000].map(opt => (
                   <TouchableOpacity
                     key={opt}
                     onPress={() => setNewGoal(opt)}
@@ -381,56 +277,6 @@ const styles = StyleSheet.create({
   scrollContent: {
     padding: 20,
     paddingBottom: 40,
-  },
-  diagnosticCard: {
-    backgroundColor: '#FEF3C7',
-    borderRadius: 16,
-    padding: 20,
-    marginBottom: 16,
-    borderWidth: 1,
-    borderColor: '#F59E0B',
-  },
-  diagnosticTitle: {
-    fontSize: 18,
-    fontWeight: '700',
-    color: '#92400E',
-    marginBottom: 16,
-    textAlign: 'center',
-  },
-  diagnosticGrid: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    justifyContent: 'space-between',
-    marginBottom: 16,
-  },
-  diagnosticItem: {
-    width: '48%',
-    marginBottom: 12,
-  },
-  diagnosticLabel: {
-    fontSize: 12,
-    color: '#92400E',
-    marginBottom: 4,
-  },
-  diagnosticValue: {
-    fontSize: 14,
-    fontWeight: '600',
-    color: '#92400E',
-  },
-  statusText: {
-    fontSize: 14,
-    color: '#92400E',
-    marginBottom: 8,
-    textAlign: 'center',
-    fontStyle: 'italic',
-  },
-  errorText: {
-    fontSize: 12,
-    color: '#DC2626',
-    textAlign: 'center',
-    backgroundColor: '#FEE2E2',
-    padding: 8,
-    borderRadius: 8,
   },
   overviewCard: {
     backgroundColor: 'white',
@@ -524,12 +370,6 @@ const styles = StyleSheet.create({
     backgroundColor: '#7B61FF',
     borderRadius: 4,
   },
-  liveStatus: {
-    fontSize: 12,
-    color: '#059669',
-    marginTop: 8,
-    fontStyle: 'italic',
-  },
   quickStats: {
     flexDirection: 'row',
     justifyContent: 'space-around',
@@ -551,88 +391,6 @@ const styles = StyleSheet.create({
     color: '#6B7280',
     marginTop: 4,
     fontFamily: 'Manrope-Regular',
-  },
-  testingCard: {
-    backgroundColor: '#E0F2FE',
-    borderRadius: 16,
-    padding: 20,
-    marginBottom: 16,
-    borderWidth: 1,
-    borderColor: '#0EA5E9',
-  },
-  testingTitle: {
-    fontSize: 16,
-    fontWeight: '600',
-    color: '#0C4A6E',
-    marginBottom: 12,
-    textAlign: 'center',
-  },
-  testingButtons: {
-    flexDirection: 'row',
-    justifyContent: 'space-around',
-    marginBottom: 16,
-  },
-  testButton: {
-    backgroundColor: '#0EA5E9',
-    borderRadius: 8,
-    paddingVertical: 8,
-    paddingHorizontal: 12,
-  },
-  testButtonText: {
-    color: 'white',
-    fontSize: 12,
-    fontWeight: '600',
-  },
-  troubleshootingSection: {
-    marginTop: 8,
-  },
-  troubleshootingTitle: {
-    fontSize: 14,
-    fontWeight: '600',
-    color: '#0C4A6E',
-    marginBottom: 8,
-  },
-  troubleshootingText: {
-    fontSize: 12,
-    color: '#0C4A6E',
-    marginBottom: 4,
-  },
-  settingsButton: {
-    backgroundColor: '#7B61FF',
-    borderRadius: 8,
-    paddingVertical: 12,
-    paddingHorizontal: 16,
-    marginTop: 12,
-    alignItems: 'center',
-  },
-  settingsButtonText: {
-    color: 'white',
-    fontSize: 14,
-    fontWeight: '600',
-  },
-  warningBox: {
-    backgroundColor: '#FEF3C7',
-    borderRadius: 8,
-    padding: 12,
-    marginTop: 12,
-    borderWidth: 1,
-    borderColor: '#F59E0B',
-  },
-  warningText: {
-    fontSize: 12,
-    color: '#92400E',
-  },
-  infoBox: {
-    backgroundColor: '#DBEAFE',
-    borderRadius: 8,
-    padding: 12,
-    marginTop: 12,
-    borderWidth: 1,
-    borderColor: '#3B82F6',
-  },
-  infoText: {
-    fontSize: 12,
-    color: '#1E40AF',
   },
   goalCard: {
     backgroundColor: 'white',

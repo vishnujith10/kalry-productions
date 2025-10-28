@@ -1,25 +1,31 @@
-import axios from 'axios';
-const API_BASE_URL = 'https://wdkraevjbcguvwpxscqf.supabase.co/functions/v1';
+import AsyncStorage from '@react-native-async-storage/async-storage';
+
+const GOAL_STORAGE_KEY = 'step_goal_';
 
 export async function getDailyGoal(userId) {
-  const res = await fetch(`${API_BASE_URL}/step-goals/${userId}`);
-  const data = await res.json();
-  return data.goal || 10000;
+  try {
+    const goalKey = `${GOAL_STORAGE_KEY}${userId}`;
+    const savedGoal = await AsyncStorage.getItem(goalKey);
+    
+    if (savedGoal) {
+      return parseInt(savedGoal, 10);
+    }
+    
+    return 10000; // Default goal
+  } catch (error) {
+    console.log('Error getting daily goal:', error);
+    return 10000;
+  }
 }
 
 export async function setDailyGoal(userId, goal) {
   try {
-    const response = await axios.post(`${API_BASE_URL}/step-goals`, {
-      user_id: userId,
-      goal,
-    });
-    return response.data;
+    const goalKey = `${GOAL_STORAGE_KEY}${userId}`;
+    await AsyncStorage.setItem(goalKey, goal.toString());
+    console.log('✅ Goal saved to AsyncStorage:', goal);
+    return true;
   } catch (error) {
-    if (error.response) {
-      console.log('setDailyGoal error:', error.response.data);
-    } else {
-      console.log('setDailyGoal error:', error.message);
-    }
-    throw error;
+    console.log('Error setting daily goal:', error);
+    return false;
   }
 }

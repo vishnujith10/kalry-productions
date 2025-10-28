@@ -4,6 +4,8 @@ import { Pedometer } from 'expo-sensors';
 import { useCallback, useEffect, useState } from 'react';
 import { AppState, Platform } from 'react-native';
 
+import supabase from '../lib/supabase';
+
 const useTodaySteps = () => {
   const [stepsToday, setStepsToday] = useState(0);
   const [isPedometerAvailable, setIsPedometerAvailable] = useState(false);
@@ -18,6 +20,7 @@ const useTodaySteps = () => {
     lastEventTime: null,
     totalEvents: 0
   });
+  const [userId, setUserId] = useState(null);
 
   // Step validation parameters
   const STEP_COOLDOWN = 100; // 100ms between events (allows ~10 steps/second)
@@ -49,6 +52,185 @@ const useTodaySteps = () => {
     }
   };
 
+  const saveStepsToDatabase = async (steps, distance, caloriesBurned, goalValue = null) => {
+    if (!userId) return;
+    
+    try {
+      const today = getTodayDateString();
+      
+      // Check if entry exists for today
+      const { data: existing } = await supabase
+        .from('steps')
+        .select('*')
+        .eq('user_id', userId)
+        .eq('date', today)
+        .single();
+      
+      const updateData = {
+        steps: steps,
+        distance: distance,
+        calories: caloriesBurned,
+        updated_at: new Date().toISOString()
+      };
+      
+      // Include goal if provided
+      if (goalValue !== null) {
+        updateData.goal = goalValue;
+      }
+      
+      if (existing) {
+        // Update existing entry
+        const { error } = await supabase
+          .from('steps')
+          .update(updateData)
+          .eq('id', existing.id);
+        
+        if (error) console.error('Error updating steps:', error);
+      } else {
+        // Insert new entry
+        const insertData = {
+          user_id: userId,
+          date: today,
+          steps: steps,
+          distance: distance,
+          calories: caloriesBurned
+        };
+        
+        if (goalValue !== null) {
+          insertData.goal = goalValue;
+        }
+        
+        const { error } = await supabase
+          .from('steps')
+          .insert([insertData]);
+        
+        if (error) console.error('Error inserting steps:', error);
+      }
+    } catch (error) {
+      console.error('Error saving steps to database:', error);
+    }
+  };
+
+  const saveGoalToDatabase = async (goalValue) => {
+    if (!userId) {
+      console.log('No userId available, skipping database save');
+      return false;
+    }
+    
+    try {
+      // Verify session is still valid
+      const { data: { session } } = await supabase.auth.getSession();
+      if (!session) {
+        console.log('No active session, skipping database save');
+        return false;
+      }
+      
+      const today = getTodayDateString();
+      
+      // Check if entry exists for today
+      const { data: existing, error: fetchError } = await supabase
+        .from('steps')
+        .select('*')
+        .eq('user_id', userId)
+        .eq('date', today)
+        .maybeSingle(); // Use maybeSingle instead of single to avoid error when not found
+      
+      if (fetchError) {
+        console.error('Error fetching existing goal:', fetchError);
+        // Continue anyway, try to insert
+      }
+      
+      if (existing) {
+        // Update existing entry
+        const { error } = await supabase
+          .from('steps')
+          .update({
+            goal: goalValue,
+            updated_at: new Date().toISOString()
+          })
+          .eq('id', existing.id);
+        
+        if (error) {
+          console.error('Error updating goal:', error);
+          return false;
+        }
+        console.log('✅ Goal updated in database:', goalValue);
+      } else {
+        // Insert new entry with goal
+        const { error } = await supabase
+          .from('steps')
+          .insert([{
+            user_id: userId,
+            date: today,
+            steps: 0,
+            distance: 0,
+            calories: 0,
+            goal: goalValue
+          }]);
+        
+        if (error) {
+          console.error('Error inserting goal:', error);
+          return false;
+        }
+        console.log('✅ Goal inserted in database:', goalValue);
+      }
+      
+      return true;
+    } catch (error) {
+      console.error('Error saving goal to database:', error);
+      // Don't return false immediately, the local save might still work
+      return false;
+    }
+  };
+
+  const loadGoalFromDatabase = async () => {
+    if (!userId) return null;
+    
+    try {
+      const today = getTodayDateString();
+      const { data, error } = await supabase
+        .from('steps')
+        .select('goal')
+        .eq('user_id', userId)
+        .eq('date', today)
+        .single();
+      
+      if (error && error.code !== 'PGRST116') {
+        console.error('Error loading goal from database:', error);
+        return null;
+      }
+      
+      return data?.goal || null;
+    } catch (error) {
+      console.error('Error loading goal from database:', error);
+      return null;
+    }
+  };
+
+  const loadStepsFromDatabase = async () => {
+    if (!userId) return null;
+    
+    try {
+      const today = getTodayDateString();
+      const { data, error } = await supabase
+        .from('steps')
+        .select('*')
+        .eq('user_id', userId)
+        .eq('date', today)
+        .single();
+      
+      if (error && error.code !== 'PGRST116') { // PGRST116 is "not found"
+        console.error('Error loading steps from database:', error);
+        return null;
+      }
+      
+      return data;
+    } catch (error) {
+      console.error('Error loading steps from database:', error);
+      return null;
+    }
+  };
+
   const updateStepMetrics = useCallback((newSteps) => {
     const distance = (newSteps * 0.762) / 1000;
     const caloriesBurned = newSteps * 0.04;
@@ -58,7 +240,41 @@ const useTodaySteps = () => {
     
     if (newSteps % 5 === 0 || newSteps === 0) {
       saveSteps(newSteps);
+      saveStepsToDatabase(newSteps, distance, caloriesBurned);
     }
+  }, [userId]);
+
+  // Get user ID and load initial data
+  useEffect(() => {
+    const initializeUser = async () => {
+      try {
+        const { data: { session } } = await supabase.auth.getSession();
+        const currentUserId = session?.user?.id;
+        setUserId(currentUserId);
+        
+        if (currentUserId) {
+          // Try to load from database first
+          const today = getTodayDateString();
+          const { data, error } = await supabase
+            .from('steps')
+            .select('*')
+            .eq('user_id', currentUserId)
+            .eq('date', today)
+            .single();
+          
+          if (data && !error) {
+            console.log('Loaded steps from database:', data.steps);
+            setStepsToday(data.steps || 0);
+            setDistanceKm(Number(data.distance) || 0);
+            setCalories(Number(data.calories) || 0);
+          }
+        }
+      } catch (error) {
+        console.error('Error initializing user:', error);
+      }
+    };
+    
+    initializeUser();
   }, []);
 
   // FIXED: Simplified diagnostics (removed DeviceMotion and Accelerometer)
@@ -358,7 +574,9 @@ const useTodaySteps = () => {
     diagnostics,
     addTestSteps,
     resetSteps,
-    runFullDiagnostic
+    runFullDiagnostic,
+    saveGoalToDatabase,
+    loadGoalFromDatabase
   };
 };
 
