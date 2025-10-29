@@ -225,7 +225,7 @@ const MainDashboardScreen = ({ route }) => {
   const navigation = useNavigation();
   const { onboardingData, setOnboardingData } = useContext(OnboardingContext);
   const userName = onboardingData?.name || 'Aanya';
-  const { stepsToday, distanceKm, calories: stepCalories, isPedometerAvailable } = useTodaySteps();
+  const { stepsToday, distanceKm, calories: stepCalories, isPedometerAvailable, reloadStepsFromDatabase } = useTodaySteps();
   const stepGoal = onboardingData?.step_goal || 10000;
 
   // Algorithm integration state
@@ -717,6 +717,15 @@ const MainDashboardScreen = ({ route }) => {
     React.useCallback(() => {
       checkDailyCheckInStatus();
     }, [])
+  );
+
+  // Reload steps data when screen focuses (to pick up deletions from StepTrackerScreen)
+  useFocusEffect(
+    React.useCallback(() => {
+      if (reloadStepsFromDatabase) {
+        reloadStepsFromDatabase();
+      }
+    }, [reloadStepsFromDatabase])
   );
 
   // Reset daily state when date changes

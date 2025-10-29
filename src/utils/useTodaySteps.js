@@ -140,40 +140,26 @@ const useTodaySteps = () => {
         // Continue anyway, try to insert
       }
       
-      if (existing) {
-        // Update existing entry
-        const { error } = await supabase
-          .from('steps')
-          .update({
-            goal: goalValue,
-            updated_at: new Date().toISOString()
-          })
-          .eq('id', existing.id);
-        
-        if (error) {
-          console.error('Error updating goal:', error);
-          return false;
-        }
-        console.log('✅ Goal updated in database:', goalValue);
-      } else {
-        // Insert new entry with goal
-        const { error } = await supabase
-          .from('steps')
-          .insert([{
-            user_id: userId,
-            date: today,
-            steps: 0,
-            distance: 0,
-            calories: 0,
-            goal: goalValue
-          }]);
-        
-        if (error) {
-          console.error('Error inserting goal:', error);
-          return false;
-        }
-        console.log('✅ Goal inserted in database:', goalValue);
+      // Use UPSERT to avoid race condition and duplicate key errors
+      const { error } = await supabase
+        .from('steps')
+        .upsert({
+          user_id: userId,
+          date: today,
+          goal: goalValue,
+          steps: existing?.steps || 0,
+          distance: existing?.distance || 0,
+          calories: existing?.calories || 0,
+          updated_at: new Date().toISOString()
+        }, {
+          onConflict: 'user_id,date'
+        });
+      
+      if (error) {
+        console.error('Error upserting goal:', error);
+        return false;
       }
+      console.log('✅ Goal saved to database:', goalValue);
       
       return true;
     } catch (error) {
@@ -559,6 +545,36 @@ const useTodaySteps = () => {
     setDebugInfo('🔄 Reset complete - ready for new steps');
   }, []);
 
+  const reloadStepsFromDatabase = useCallback(async () => {
+    if (!userId) return;
+    
+    try {
+      console.log('🔄 Reloading steps from database...');
+      const today = getTodayDateString();
+      const { data, error } = await supabase
+        .from('steps')
+        .select('*')
+        .eq('user_id', userId)
+        .eq('date', today)
+        .single();
+      
+      if (data && !error) {
+        console.log('✅ Loaded steps from database:', data.steps);
+        setStepsToday(data.steps || 0);
+        setDistanceKm(Number(data.distance) || 0);
+        setCalories(Number(data.calories) || 0);
+      } else if (error && error.code === 'PGRST116') {
+        // No record found - reset to 0
+        console.log('ℹ️ No record found in database, resetting to 0');
+        setStepsToday(0);
+        setDistanceKm(0);
+        setCalories(0);
+      }
+    } catch (error) {
+      console.error('Error reloading steps:', error);
+    }
+  }, [userId]);
+
   const runFullDiagnostic = useCallback(() => {
     runDiagnostics();
     setDebugInfo('🔍 Running diagnostic check...');
@@ -574,6 +590,7 @@ const useTodaySteps = () => {
     diagnostics,
     addTestSteps,
     resetSteps,
+    reloadStepsFromDatabase,
     runFullDiagnostic,
     saveGoalToDatabase,
     loadGoalFromDatabase

@@ -1,5 +1,6 @@
 // StepTrackerScreen.js
 import { Ionicons } from '@expo/vector-icons';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useFocusEffect } from '@react-navigation/native';
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { Alert, Animated, Modal, ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native';
@@ -35,7 +36,8 @@ const StepTrackerScreen = ({ navigation }) => {
     distanceKm, 
     calories, 
     saveGoalToDatabase,
-    loadGoalFromDatabase
+    loadGoalFromDatabase,
+    resetSteps
   } = useTodaySteps();
 
   // Helper functions for week management
@@ -270,6 +272,104 @@ const StepTrackerScreen = ({ navigation }) => {
     setShowGoalModal(true);
   }, [goal]);
 
+  // Get current date in YYYY-MM-DD format
+  const getCurrentDate = () => {
+    const today = new Date();
+    return today.toISOString().split('T')[0];
+  };
+
+  // Delete today's data and refresh
+  const handleDeleteTodayData = useCallback(async () => {
+    if (!userId) {
+      Alert.alert('Error', 'No user ID found');
+      return;
+    }
+
+    Alert.alert(
+      'Delete Today\'s Data',
+      'Are you sure you want to refresh today\'s step data?',
+      [
+        {
+          text: 'Cancel',
+          style: 'cancel'
+        },
+        {
+          text: 'Delete',
+          style: 'destructive',
+          onPress: async () => {
+            try {
+              const todayDate = getCurrentDate();
+              
+              console.log('🗑️ Attempting to delete:', { 
+                userId, 
+                todayDate,
+                todayDateType: typeof todayDate,
+                userIdType: typeof userId
+              });
+              
+              // First, check if the record exists
+              const { data: existingRecords, error: checkError } = await supabase
+                .from('steps')
+                .select('*')
+                .eq('user_id', userId)
+                .eq('date', todayDate);
+              
+              console.log('📋 Existing records:', existingRecords);
+              console.log('Check error:', checkError);
+              
+              if (!existingRecords || existingRecords.length === 0) {
+                console.log('⚠️ No records found for today');
+                Alert.alert('Info', 'No step data found for today');
+                return;
+              }
+              
+              // Delete from database
+              const { data: deletedData, error: deleteError } = await supabase
+                .from('steps')
+                .delete()
+                .eq('user_id', userId)
+                .eq('date', todayDate)
+                .select(); // Return deleted rows
+
+              if (deleteError) {
+                console.error('❌ Delete error:', deleteError);
+                throw deleteError;
+              }
+
+              console.log('✅ Deleted successfully:', deletedData);
+              console.log('Number of rows deleted:', deletedData?.length || 0);
+
+              // Clear AsyncStorage for today's steps
+              try {
+                const todayKey = `steps_${todayDate}`;
+                await AsyncStorage.removeItem(todayKey);
+                console.log('🗑️ Cleared AsyncStorage:', todayKey);
+              } catch (storageError) {
+                console.log('⚠️ Failed to clear AsyncStorage:', storageError);
+              }
+
+              // Reset step counter to 0 immediately
+              resetSteps();
+              console.log('🔄 Step counter reset to 0');
+
+              // Clear cache to force refresh
+              globalStepCache.cachedWeeklyData = null;
+              globalStepCache.cachedStats = null;
+              globalStepCache.timestamp = null;
+              globalStepCache.isStale = false;
+
+              // Reload data
+              await loadWeeklyData(userId);
+            } catch (error) {
+              console.error('💥 Error deleting today\'s data:', error);
+              Alert.alert('Error', `Failed to delete: ${error.message || 'Unknown error'}`);
+            }
+          }
+        }
+      ]
+    );
+  }, [userId, loadWeeklyData, resetSteps]);
+
   const percent = Math.min(Math.round((stepsToday / goal) * 100), 100);
 
   // Weekly data with dynamic today's progress - Memoized to prevent re-renders
@@ -407,7 +507,9 @@ const StepTrackerScreen = ({ navigation }) => {
             <Ionicons name="chevron-back" size={24} color="#1F2937" />
           </TouchableOpacity>
           <Text style={styles.headerTitle}>Step Counter</Text>
-          <View style={{ width: 24 }} />
+          <TouchableOpacity onPress={handleDeleteTodayData}>
+            <Ionicons name="refresh" size={24} color="#7B61FF" />
+          </TouchableOpacity>
         </View>
 
         <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={styles.scrollContent}>
