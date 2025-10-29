@@ -24,7 +24,7 @@ const useTodaySteps = () => {
 
   // Step validation parameters
   const STEP_COOLDOWN = 100; // 100ms between events (allows ~10 steps/second)
-  const MIN_STEP_COUNT = 1;
+  const MIN_STEP_COUNT = 0;
   const MAX_STEPS_PER_EVENT = 5; // Cap at 5 steps per event to prevent sensor errors
 
   const getTodayDateString = () => {
