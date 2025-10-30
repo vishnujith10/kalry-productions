@@ -235,6 +235,9 @@ const HydrationTrackerScreen = () => {
 
       setUserId(user.id);
       
+      // Load the most recent goal from database to use as default
+      await loadMostRecentGoal(user.id);
+      
       // Initialize context-aware personalization engine
       const userProfile = {
         weight: 70, // Default - could be fetched from user profile
@@ -276,6 +279,39 @@ const HydrationTrackerScreen = () => {
     } catch (error) {
       console.error('Error initializing user:', error);
       Alert.alert('Error', 'Failed to initialize user data');
+    }
+  };
+
+  const loadMostRecentGoal = async (userId) => {
+    try {
+      // Get the most recent goal from any previous day
+      const { data, error } = await supabase
+        .from('daily_water_intake')
+        .select('daily_goal_ml')
+        .eq('user_id', userId)
+        .order('date', { ascending: false })
+        .limit(1)
+        .single();
+
+      if (data && !error) {
+        const recentGoal = data.daily_goal_ml / 1000; // Convert ml to L
+        console.log('📊 Loaded most recent goal:', recentGoal, 'L');
+        setDefaultGoal(recentGoal);
+        
+        // Update cache
+        globalHydrationCache.cachedData = {
+          ...globalHydrationCache.cachedData,
+          defaultGoal: recentGoal,
+        };
+      } else {
+        // No previous records, use default 2.5L
+        console.log('📊 No previous goal found, using default 2.5L');
+        setDefaultGoal(2.5);
+      }
+    } catch (error) {
+      console.error('Error loading most recent goal:', error);
+      // Fallback to default
+      setDefaultGoal(2.5);
     }
   };
 

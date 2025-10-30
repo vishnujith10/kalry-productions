@@ -723,7 +723,7 @@ const styles = StyleSheet.create({
     height: 100,
     borderRadius: 50,
     borderWidth: 8,
-    borderColor: '#E5E7EB',
+    borderColor: '#7B61FF',
     position: 'relative',
   },
   progressArc: {

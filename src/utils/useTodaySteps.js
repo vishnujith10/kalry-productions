@@ -22,10 +22,10 @@ const useTodaySteps = () => {
   });
   const [userId, setUserId] = useState(null);
 
-  // Step validation parameters
-  const STEP_COOLDOWN = 100; // 100ms between events (allows ~10 steps/second)
-  const MIN_STEP_COUNT = 0;
-  const MAX_STEPS_PER_EVENT = 5; // Cap at 5 steps per event to prevent sensor errors
+  // Step validation parameters - STRICTER to prevent false positives
+  const STEP_COOLDOWN = 500; // 500ms between events (prevents small movements)
+  const MIN_STEP_COUNT = 2; // Require at least 2 steps to filter out noise
+  const MAX_STEPS_PER_EVENT = 3; // Cap at 3 steps per event (normal walking pace)
 
   const getTodayDateString = () => {
     const today = new Date();
@@ -224,10 +224,11 @@ const useTodaySteps = () => {
     setDistanceKm(distance);
     setCalories(caloriesBurned);
     
-    if (newSteps % 5 === 0 || newSteps === 0) {
-      saveSteps(newSteps);
-      saveStepsToDatabase(newSteps, distance, caloriesBurned);
-    }
+    // Save to AsyncStorage on every update
+    saveSteps(newSteps);
+    
+    // Save to database every step (to ensure data isn't lost on navigation)
+    saveStepsToDatabase(newSteps, distance, caloriesBurned);
   }, [userId]);
 
   // Get user ID and load initial data
@@ -407,25 +408,31 @@ const useTodaySteps = () => {
               cooldown: STEP_COOLDOWN
             });
 
-            // Validation: minimum steps
+            // Validation: minimum steps (filter noise)
             if (stepResult.steps < MIN_STEP_COUNT) {
-              console.log('🚫 Filtered: too few steps:', stepResult.steps);
+              console.log('🚫 Filtered: too few steps (noise):', stepResult.steps);
               return;
             }
             
-            // Validation: prevent duplicate/rapid-fire events
+            // Validation: prevent duplicate/rapid-fire events and small movements
             if (timeSinceLastStep < STEP_COOLDOWN) {
-              console.log('🚫 Filtered: too fast (duplicate event):', timeSinceLastStep, 'ms');
+              console.log('🚫 Filtered: too fast (small movement/noise):', timeSinceLastStep, 'ms');
               return;
             }
 
-            // Use the actual step count from the sensor, but cap it to prevent errors
-            // At 100ms cooldown, max 5 steps = walking at 50 steps/second (impossible)
-            // Normal fast walking is ~3 steps/second
+            // Use the actual step count from the sensor, but cap it
+            // Normal walking pace: ~2 steps/second = 1 step per 500ms
+            // This prevents both sensor errors and false positives from small movements
             let stepsToAdd = Math.min(stepResult.steps, MAX_STEPS_PER_EVENT);
             
             if (stepResult.steps > MAX_STEPS_PER_EVENT) {
-              console.log('⚠️ Sensor error: capping', stepResult.steps, '→', stepsToAdd);
+              console.log('⚠️ Capping excessive steps:', stepResult.steps, '→', stepsToAdd);
+            }
+            
+            // Extra validation: reject if steps seem unrealistic
+            if (stepsToAdd > 3 && timeSinceLastStep < 1000) {
+              console.log('🚫 Filtered: unrealistic step rate');
+              return;
             }
 
             // VALID STEP DETECTED
