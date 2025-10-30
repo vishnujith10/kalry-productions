@@ -1471,7 +1471,7 @@ const styles = StyleSheet.create({
     elevation: 0,
   },
   logSleepButtonEnabled: {
-    backgroundColor: "#4F46E5",
+    backgroundColor: "#7B61FF",
     shadowColor: "#4F46E5",
     shadowOpacity: 0.3,
     shadowRadius: 8,

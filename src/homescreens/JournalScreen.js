@@ -13,14 +13,14 @@ const JournalScreen = () => {
   const [selectedFilter, setSelectedFilter] = useState('All');
   const [loading, setLoading] = useState(true);
   const [journalData, setJournalData] = useState({
-    today: { meals: [], workouts: [], sleep: [], hydration: [] },
-    yesterday: { meals: [], workouts: [], sleep: [], hydration: [] }
+    today: { meals: [], workouts: [], sleep: [], hydration: [], weight: [] },
+    yesterday: { meals: [], workouts: [], sleep: [], hydration: [], weight: [] }
   });
-  const [timelineDays, setTimelineDays] = useState([]); // [{dateLabel, entries:{meals,workouts,sleep,hydration}}]
+  const [timelineDays, setTimelineDays] = useState([]); // [{dateLabel, entries:{meals,workouts,sleep,hydration,weight}}]
   const [rangeFilter, setRangeFilter] = useState('today'); // 'today' | '7days' | '1month'
   const [showRangeMenu, setShowRangeMenu] = useState(false);
 
-  const filters = ['All', 'Meals', 'Workouts', 'Sleep', 'Hydration'];
+  const filters = ['All', 'Meals', 'Workouts', 'Sleep', 'Hydration', 'Weight'];
   const [showTypeMenu, setShowTypeMenu] = useState(false);
 
   useEffect(() => {
@@ -85,18 +85,19 @@ const JournalScreen = () => {
       }
 
       // Fetch all data for selected range
-      const [mealsRange, cardioRange, routineRange, waterRange, sleepRange] = await Promise.all([
+      const [mealsRange, cardioRange, routineRange, waterRange, sleepRange, weightRange] = await Promise.all([
         fetchMealsRange(userId, rangeStartISO, rangeEndISO, rangeStartDateStr, rangeEndDateStr),
         fetchCardio(userId, rangeStartISO, rangeEndISO),
         fetchRoutineExercisesRange(userId, rangeStartDateStr, rangeEndDateStr),
         fetchWaterRange(userId, rangeStartDateStr, rangeEndDateStr),
-        fetchSleepRange(userId, rangeStartDateStr, rangeEndDateStr)
+        fetchSleepRange(userId, rangeStartDateStr, rangeEndDateStr),
+        fetchWeightRange(userId, rangeStartDateStr, rangeEndDateStr)
       ]);
 
       // Group by date label
       const byDate = new Map();
       const ensureBucket = (dateStr) => {
-        if (!byDate.has(dateStr)) byDate.set(dateStr, { meals: [], workouts: [], sleep: [], hydration: [] });
+        if (!byDate.has(dateStr)) byDate.set(dateStr, { meals: [], workouts: [], sleep: [], hydration: [], weight: [] });
         return byDate.get(dateStr);
       };
       (mealsRange || []).forEach(m => { const b = ensureBucket(m._date); b.meals.push(m); });
@@ -104,6 +105,7 @@ const JournalScreen = () => {
       (routineRange || []).forEach(r => { const b = ensureBucket(r._date); b.workouts.push(r); });
       (waterRange || []).forEach(w => { const b = ensureBucket(w._date); b.hydration.push(w); });
       (sleepRange || []).forEach(s => { const b = ensureBucket(s._date); b.sleep.push(s); });
+      (weightRange || []).forEach(w => { const b = ensureBucket(w._date); b.weight.push(w); });
 
       // Deduplicate any accidental duplicate keys and sort desc
       const sortedDates = Array.from(new Set(byDate.keys())).sort((a,b) => (a < b ? 1 : -1));
@@ -368,6 +370,90 @@ const JournalScreen = () => {
     }
   };
 
+  const fetchWeightRange = async (userId, startDateStr, endDateStr) => {
+    try {
+      console.log('📊 Fetching weight logs for range:', startDateStr, 'to', endDateStr);
+      
+      // 1. Get ALL weight logs for this user (we need historical data)
+      const { data: allLogs, error } = await supabase
+        .from('weight_logs')
+        .select('id, weight, date, note, emoji')
+        .eq('user_id', userId)
+        .order('date', { ascending: true }); // Oldest first for processing
+      
+      if (error) throw error;
+      
+      if (!allLogs || allLogs.length === 0) {
+        console.log('⚠️ No weight logs found for user');
+        return [];
+      }
+      
+      console.log('✅ Found', allLogs.length, 'weight logs');
+      
+      // 2. Create a map of date -> weight (only actual logged dates)
+      const weightByDate = new Map();
+      allLogs.forEach(log => {
+        weightByDate.set(log.date, {
+          id: log.id,
+          weight: log.weight,
+          note: log.note,
+          emoji: log.emoji,
+          date: log.date
+        });
+      });
+      
+      // 3. Generate all dates in the range
+      const start = new Date(startDateStr);
+      const end = new Date(endDateStr);
+      const datesInRange = [];
+      
+      for (let d = new Date(start); d <= end; d.setDate(d.getDate() + 1)) {
+        datesInRange.push(getLocalDateString(d));
+      }
+      
+      // 4. For each date in range, find the most recent weight up to that date
+      const result = [];
+      
+      for (const dateStr of datesInRange) {
+        // Find the most recent weight log on or before this date
+        let currentWeight = null;
+        
+        for (const log of allLogs) {
+          if (log.date <= dateStr) {
+            currentWeight = {
+              id: log.id,
+              weight: log.weight,
+              note: log.note,
+              emoji: log.emoji,
+              date: log.date,
+              isActualLog: log.date === dateStr // True if logged on this specific date
+            };
+          } else {
+            break; // logs are sorted ascending, so we can break
+          }
+        }
+        
+        if (currentWeight) {
+          result.push({
+            id: `weight-${currentWeight.id}-${dateStr}`,
+            title: currentWeight.isActualLog ? 'Weight Logged' : 'Weight (Carried Forward)',
+            description: `${currentWeight.weight} kg${currentWeight.note ? ' - ' + currentWeight.note : ''}`,
+            type: 'weight',
+            _date: dateStr,
+            _isActualLog: currentWeight.isActualLog
+          });
+        }
+      }
+      
+      console.log('✅ Processed weight data for', result.length, 'days');
+      return result;
+      
+    } catch (error) {
+      console.error('❌ Error fetching weight (range):', error);
+      return [];
+    }
+  };
+
   const getIconForType = (type) => {
     switch (type) {
       case 'meal':
@@ -378,6 +464,8 @@ const JournalScreen = () => {
         return { icon: 'moon', color: '#8B5CF6', bgColor: '#EDE9FE' };
       case 'hydration':
         return { icon: 'water', color: '#3B82F6', bgColor: '#DBEAFE' };
+      case 'weight':
+        return { icon: 'body', color: '#EF4444', bgColor: '#FEE2E2' };
       default:
         return { icon: 'ellipse', color: '#6B7280', bgColor: '#E5E7EB' };
     }
@@ -389,7 +477,8 @@ const JournalScreen = () => {
       'Meals': 'meal',
       'Workouts': 'workout',
       'Sleep': 'sleep',
-      'Hydration': 'hydration'
+      'Hydration': 'hydration',
+      'Weight': 'weight'
     };
     return entries.filter(entry => entry.type === filterMap[selectedFilter]);
   };
@@ -504,7 +593,7 @@ const JournalScreen = () => {
   };
 
   const renderSection = (title, data) => {
-    const allEntries = [...data.meals, ...data.workouts, ...data.sleep, ...data.hydration];
+    const allEntries = [...data.meals, ...data.workouts, ...data.sleep, ...data.hydration, ...data.weight];
     
     if (selectedFilter === 'All') {
       return (
@@ -517,6 +606,7 @@ const JournalScreen = () => {
               {renderCategory('Workouts', allEntries, 'workout')}
               {renderCategory('Sleep', allEntries, 'sleep')}
               {renderCategory('Hydration', allEntries, 'hydration')}
+              {renderCategory('Weight', allEntries, 'weight')}
             </View>
           </View>
         </View>
@@ -631,6 +721,7 @@ const JournalScreen = () => {
                 {selectedFilter === 'All' || selectedFilter === 'Workouts' ? renderCategory('Workouts', [], 'workout') : null}
                 {selectedFilter === 'All' || selectedFilter === 'Sleep' ? renderCategory('Sleep', [], 'sleep') : null}
                 {selectedFilter === 'All' || selectedFilter === 'Hydration' ? renderCategory('Hydration', [], 'hydration') : null}
+                {selectedFilter === 'All' || selectedFilter === 'Weight' ? renderCategory('Weight', [], 'weight') : null}
               </View>
             </View>
           ) : (
@@ -641,13 +732,15 @@ const JournalScreen = () => {
                   <View style={styles.timelineLine} />
                   <View style={styles.entriesWrapper}>
                     { (selectedFilter === 'All' || selectedFilter === 'Meals') &&
-                      renderCategory('Meals', [...day.entries.meals, ...day.entries.workouts, ...day.entries.sleep, ...day.entries.hydration], 'meal') }
+                      renderCategory('Meals', [...day.entries.meals, ...day.entries.workouts, ...day.entries.sleep, ...day.entries.hydration, ...day.entries.weight], 'meal') }
                     { (selectedFilter === 'All' || selectedFilter === 'Workouts') &&
-                      renderCategory('Workouts', [...day.entries.meals, ...day.entries.workouts, ...day.entries.sleep, ...day.entries.hydration], 'workout') }
+                      renderCategory('Workouts', [...day.entries.meals, ...day.entries.workouts, ...day.entries.sleep, ...day.entries.hydration, ...day.entries.weight], 'workout') }
                     { (selectedFilter === 'All' || selectedFilter === 'Sleep') &&
-                      renderCategory('Sleep', [...day.entries.meals, ...day.entries.workouts, ...day.entries.sleep, ...day.entries.hydration], 'sleep') }
+                      renderCategory('Sleep', [...day.entries.meals, ...day.entries.workouts, ...day.entries.sleep, ...day.entries.hydration, ...day.entries.weight], 'sleep') }
                     { (selectedFilter === 'All' || selectedFilter === 'Hydration') &&
-                      renderCategory('Hydration', [...day.entries.meals, ...day.entries.workouts, ...day.entries.sleep, ...day.entries.hydration], 'hydration') }
+                      renderCategory('Hydration', [...day.entries.meals, ...day.entries.workouts, ...day.entries.sleep, ...day.entries.hydration, ...day.entries.weight], 'hydration') }
+                    { (selectedFilter === 'All' || selectedFilter === 'Weight') &&
+                      renderCategory('Weight', [...day.entries.meals, ...day.entries.workouts, ...day.entries.sleep, ...day.entries.hydration, ...day.entries.weight], 'weight') }
                   </View>
                 </View>
               </View>
