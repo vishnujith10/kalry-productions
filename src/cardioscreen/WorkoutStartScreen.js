@@ -438,6 +438,15 @@ export default function WorkoutStartScreen({ route, navigation }) {
         // Silent - cacheManager might not exist yet
       }
 
+      // Update exercise streak (after completing workout)
+      try {
+        const { updateExerciseStreak } = require('../utils/streakService');
+        await updateExerciseStreak(userId);
+        console.log('✅ Exercise streak updated after completing cardio workout');
+      } catch (error) {
+        console.error('Error updating exercise streak:', error);
+      }
+
       Alert.alert(
         'Success',
         'Workout details saved successfully!',

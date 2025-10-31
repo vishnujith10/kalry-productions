@@ -19,6 +19,13 @@ const defaultSummary = [
   { icon: 'time-outline', color: GREEN, value: '0', label: 'Workout Minutes', unit: 'min' },
 ];
 
+// Global cache for Exercise Screen data
+const globalExerciseCache = {
+  cachedData: null,
+  lastFetch: 0,
+  cacheDuration: 30000, // 30 seconds cache
+};
+
 
 // Add FooterBar component
 const FooterBar = ({ navigation, activeTab }) => {
@@ -124,8 +131,22 @@ const ExerciseScreen = () => {
   ];
 
   // Fetch workout data (calories and minutes)
-  const fetchWorkoutData = useCallback(async () => {
+  const fetchWorkoutData = useCallback(async (forceRefresh = false) => {
     try {
+      const now = Date.now();
+      
+      // Use cache if available and not expired (unless forceRefresh)
+      if (!forceRefresh && globalExerciseCache.cachedData && (now - globalExerciseCache.lastFetch < globalExerciseCache.cacheDuration)) {
+        console.log('📦 Using cached exercise data');
+        const cached = globalExerciseCache.cachedData;
+        setSummary(cached.summary);
+        setWorkoutStreak(cached.workoutStreak);
+        setWorkoutDates(cached.workoutDates);
+        return;
+      }
+
+      console.log('🔄 Fetching fresh exercise data...');
+      
       // Get current user
       const { data: { user } } = await supabase.auth.getUser();
       if (!user) return;
@@ -186,10 +207,11 @@ const ExerciseScreen = () => {
       }
 
       // Update summary with real data
-      setSummary([
+      const newSummary = [
         { icon: 'flame-outline', color: PURPLE, value: totalCalories.toString(), label: 'Calories Burned', unit: 'kcal' },
         { icon: 'time-outline', color: GREEN, value: totalMinutes.toString(), label: 'Workout Minutes', unit: 'min' },
-      ]);
+      ];
+      setSummary(newSummary);
 
       // Update and get exercise streak from database
       if (totalMinutes > 0) {
@@ -202,6 +224,15 @@ const ExerciseScreen = () => {
       // Fetch workout dates for the week (for calendar dots)
       const dates = await getWorkoutDatesForWeek(user.id, weekStart, weekEnd);
       setWorkoutDates(dates);
+
+      // Cache the data
+      globalExerciseCache.cachedData = {
+        summary: newSummary,
+        workoutStreak: currentStreak,
+        workoutDates: dates,
+      };
+      globalExerciseCache.lastFetch = now;
+      console.log('✅ Exercise data cached');
 
     } catch (error) {
       console.error('Error fetching workout data:', error);

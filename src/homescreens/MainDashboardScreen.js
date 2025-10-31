@@ -1099,8 +1099,8 @@ const MainDashboardScreen = ({ route }) => {
         >
           <View style={styles.moodIconWrap}><MaterialCommunityIcons name="emoticon-happy-outline" size={28} color={COLORS.primary} /></View>
           <View style={{ flex: 1 }}>
-            <Text style={styles.moodTitle}>{mood || 'Not tracked yet'}</Text>
-            <Text style={styles.moodSub}>New journal entry ready</Text>
+            <Text style={styles.moodTitle}>{mood || 'Time Line'}</Text>
+            <Text style={styles.moodSub}>Keep track of your Journey</Text>
           </View>
           <Ionicons name="chevron-forward" size={22} color={COLORS.primary} />
         </TouchableOpacity>

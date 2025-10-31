@@ -443,9 +443,13 @@ export default function StartWorkoutScreen({ navigation, route }) {
       if (exercise.sets.length === 0) return true;
       
       // Check if all sets are empty (no weight, reps, distance, or time filled)
-      return exercise.sets.every(set => 
-        !set.weight && !set.reps && !set.distance && (!set.time || set.time === '00:00')
-      );
+      return exercise.sets.every(set => {
+        const timerKey = `${exercise.id}-${set.id}`;
+        const hasActiveTimer = activeTimers[timerKey] && activeTimers[timerKey] > 0;
+        
+        // Consider set complete if it has weight, reps, distance, time, or an active timer
+        return !set.weight && !set.reps && !set.distance && (!set.time || set.time === '00:00') && !hasActiveTimer;
+      });
     });
 
     if (hasIncompleteExercises) {
@@ -509,11 +513,22 @@ export default function StartWorkoutScreen({ navigation, route }) {
           // Ensure we have exercise name and image URL
           name: exercise.name || exercise.workout || 'Unknown Exercise',
           gif_url: exercise.gif_url || exercise.image_url || null,
-          sets: exercise.sets.map(set => ({
-            ...set,
-            reps: set.reps ? parseInt(set.reps) || 0 : null,
-            weight: set.weight ? parseFloat(set.weight) || 0 : null,
-          }))
+          sets: exercise.sets.map(set => {
+            const timerKey = `${exercise.id}-${set.id}`;
+            const timerValue = activeTimers[timerKey];
+            
+            // If there's an active timer value, use it for the time field
+            const finalTime = timerValue && timerValue > 0 
+              ? formatTime(timerValue) 
+              : set.time;
+            
+            return {
+              ...set,
+              reps: set.reps ? parseInt(set.reps) || 0 : null,
+              weight: set.weight ? parseFloat(set.weight) || 0 : null,
+              time: finalTime !== '00:00' ? finalTime : null,
+            };
+          })
         };
       });
       
@@ -533,6 +548,15 @@ export default function StartWorkoutScreen({ navigation, route }) {
         updateMainDashboardWorkoutCache();
       } catch (error) {
         // Silent - cacheManager might not exist yet
+      }
+      
+      // Update exercise streak (after completing workout)
+      try {
+        const { updateExerciseStreak } = require('../utils/streakService');
+        await updateExerciseStreak(userId);
+        console.log('✅ Exercise streak updated after completing routine workout');
+      } catch (error) {
+        console.error('Error updating exercise streak:', error);
       }
       
       Alert.alert(

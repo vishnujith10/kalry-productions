@@ -165,6 +165,7 @@ const getExerciseIcon = (exerciseName) => {
   if (name.includes('run') || name.includes('jog')) return 'running';
   if (name.includes('cycle') || name.includes('bike')) return 'directions-bike';
   if (name.includes('swim')) return 'pool';
+  if (name.includes('stretch')) return 'fitness-center'; // Stretch exercises get dumbbell icon
   if (name.includes('push') || name.includes('press')) return 'fitness-center';
   if (name.includes('squat') || name.includes('leg')) return 'fitness-center';
   if (name.includes('cardio')) return 'favorite';
