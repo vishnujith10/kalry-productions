@@ -5,6 +5,7 @@ import { useCallback, useEffect, useState } from 'react';
 import { AppState, Platform } from 'react-native';
 
 import supabase from '../lib/supabase';
+import { calculateStepCalories } from './calorieCalculator';
 
 const useTodaySteps = () => {
   const [stepsToday, setStepsToday] = useState(0);
@@ -21,6 +22,7 @@ const useTodaySteps = () => {
     totalEvents: 0
   });
   const [userId, setUserId] = useState(null);
+  const [userProfile, setUserProfile] = useState(null);
 
   // Step validation parameters - STRICTER to prevent false positives
   const STEP_COOLDOWN = 500; // 500ms between events (prevents small movements)
@@ -219,7 +221,21 @@ const useTodaySteps = () => {
 
   const updateStepMetrics = useCallback((newSteps) => {
     const distance = (newSteps * 0.762) / 1000;
-    const caloriesBurned = newSteps * 0.04;
+    
+    // Use personalized calorie calculation if profile available
+    let caloriesBurned;
+    if (userProfile?.weight && userProfile?.height) {
+      caloriesBurned = calculateStepCalories(
+        newSteps,
+        userProfile.weight,
+        userProfile.height,
+        userProfile.age || 30,
+        userProfile.gender || 'female'
+      );
+    } else {
+      // Fallback to basic calculation
+      caloriesBurned = newSteps * 0.04;
+    }
     
     setDistanceKm(distance);
     setCalories(caloriesBurned);
@@ -229,7 +245,7 @@ const useTodaySteps = () => {
     
     // Save to database every step (to ensure data isn't lost on navigation)
     saveStepsToDatabase(newSteps, distance, caloriesBurned);
-  }, [userId]);
+  }, [userId, userProfile]);
 
   // Get user ID and load initial data
   useEffect(() => {
@@ -240,6 +256,17 @@ const useTodaySteps = () => {
         setUserId(currentUserId);
         
         if (currentUserId) {
+          // Fetch user profile for personalized calorie calculation
+          const { data: profileData } = await supabase
+            .from('user_profile')
+            .select('weight, height, age, gender')
+            .eq('id', currentUserId)
+            .single();
+          
+          if (profileData) {
+            setUserProfile(profileData);
+          }
+          
           // Try to load from database first
           const today = getTodayDateString();
           const { data, error } = await supabase

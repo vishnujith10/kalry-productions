@@ -1,4 +1,5 @@
 import supabase from './supabase';
+import { calculateStrengthCalories } from '../utils/calorieCalculator';
 
 // Fetch all exercises, with comprehensive filtering options
 export async function fetchExercises({ search, type, muscle, bodyPart, equipment } = {}) {
@@ -48,6 +49,26 @@ export async function fetchExercises({ search, type, muscle, bodyPart, equipment
 export async function saveWorkout({ userId, date, duration, totalKcal, notes, exercises, isRoutine = false }) {
   console.log('Saving workout with data:', { userId, date, duration, totalKcal, exercises: exercises.length });
   
+  // Fetch user profile for personalized calorie calculation
+  let calculatedCalories = totalKcal;
+  if (!totalKcal && duration) {
+    try {
+      const { data: profileData } = await supabase
+        .from('user_profile')
+        .select('weight')
+        .eq('id', userId)
+        .single();
+      
+      if (profileData?.weight) {
+        const durationMinutes = duration / 60;
+        calculatedCalories = calculateStrengthCalories(durationMinutes, profileData.weight, 'moderate');
+        console.log('Calculated personalized workout calories:', calculatedCalories);
+      }
+    } catch (error) {
+      console.error('Error fetching profile for calorie calculation:', error);
+    }
+  }
+  
   // 1. Insert workout
   const { data: workout, error: workoutError } = await supabase
     .from('workouts')
@@ -55,7 +76,7 @@ export async function saveWorkout({ userId, date, duration, totalKcal, notes, ex
       user_id: userId, 
       date, 
       duration, 
-      total_kcal: totalKcal, 
+      total_kcal: calculatedCalories, 
       notes: isRoutine ? 'Saved Routine' : notes 
     })
     .select()

@@ -4,6 +4,8 @@ import React, { useCallback, useState } from 'react';
 import { Platform, ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import supabase from '../lib/supabase';
+import { getWorkoutDatesForWeek } from '../utils/streakManager';
+import { getExerciseStreak, updateExerciseStreak } from '../utils/streakService';
 
 const PURPLE = '#A084E8';
 const GREEN = '#22C55E';
@@ -87,6 +89,8 @@ const FooterBar = ({ navigation, activeTab }) => {
 
 const ExerciseScreen = () => {
   const [summary, setSummary] = useState(defaultSummary);
+  const [workoutStreak, setWorkoutStreak] = useState(0);
+  const [workoutDates, setWorkoutDates] = useState([]);
   const navigation = useNavigation();
 
   // Get current week dates (Monday to Sunday)
@@ -181,13 +185,23 @@ const ExerciseScreen = () => {
         });
       }
 
-      // Update workout data (no need to store in state since we update summary directly)
-
       // Update summary with real data
       setSummary([
         { icon: 'flame-outline', color: PURPLE, value: totalCalories.toString(), label: 'Calories Burned', unit: 'kcal' },
         { icon: 'time-outline', color: GREEN, value: totalMinutes.toString(), label: 'Workout Minutes', unit: 'min' },
       ]);
+
+      // Update and get exercise streak from database
+      if (totalMinutes > 0) {
+        // User has workouts, update streak
+        await updateExerciseStreak(user.id);
+      }
+      const currentStreak = await getExerciseStreak(user.id);
+      setWorkoutStreak(currentStreak);
+
+      // Fetch workout dates for the week (for calendar dots)
+      const dates = await getWorkoutDatesForWeek(user.id, weekStart, weekEnd);
+      setWorkoutDates(dates);
 
     } catch (error) {
       console.error('Error fetching workout data:', error);
@@ -222,7 +236,7 @@ const ExerciseScreen = () => {
             <Text style={styles.calendarMonth}>{monthNames[today.getMonth()]} {today.getFullYear()}</Text>
             <View style={styles.streakBadge}>
               <Text style={styles.streakEmoji}>🔥</Text>
-              <Text style={styles.streakText}>7-day streak</Text>
+              <Text style={styles.streakText}>{workoutStreak}-day streak</Text>
             </View>
           </View>
           
@@ -233,23 +247,23 @@ const ExerciseScreen = () => {
               ))}
             </View>
             <View style={styles.datesRow}>
-              {currentWeekDates.map((day, i) => (
-                <View key={i} style={[styles.dateCell, day.isToday && styles.activeDateCell]}>
-                  <Text style={[styles.dateText, day.isToday && styles.activeDateText]}>
-                    {day.date}
-                  </Text>
-                  {day.isToday && <View style={styles.activeDateDots} />}
-                </View>
-              ))}
+              {currentWeekDates.map((day, i) => {
+                const dateStr = new Date(today.getFullYear(), today.getMonth(), day.date).toISOString().split('T')[0];
+                const hasWorkout = workoutDates.includes(dateStr);
+                
+                return (
+                  <View key={i} style={[styles.dateCell, day.isToday && styles.activeDateCell]}>
+                    <Text style={[styles.dateText, day.isToday && styles.activeDateText]}>
+                      {day.date}
+                    </Text>
+                    {hasWorkout && (
+                      <View style={styles.workoutDot} />
+                    )}
+                  </View>
+                );
+              })}
             </View>
           </View>
-
-          {/* <View style={styles.weekProgressSection}>
-            <Text style={styles.weekProgressText}>This Week: 4/7 workouts done</Text>
-            <View style={styles.progressBar}>
-              <View style={styles.progressFill} />
-            </View>
-          </View> */}
         </View>
 
         {/* Summary Cards */}
@@ -479,6 +493,14 @@ const styles = StyleSheet.create({
     bottom: 6,
     flexDirection: 'row',
     gap: 2,
+  },
+  workoutDot: {
+    position: 'absolute',
+    bottom: 4,
+    width: 6,
+    height: 6,
+    borderRadius: 3,
+    backgroundColor: '#22C55E',
   },
   weekProgressSection: {
     paddingTop: 12,
@@ -736,3 +758,4 @@ const footerStyles = StyleSheet.create({
 });
 
 export default React.memo(ExerciseScreen);
+

@@ -1,272 +1,285 @@
-/**
- * Real-world accurate calorie calculation utility
- * Based on scientific formulas and MET values
- */
+// Comprehensive calorie burn calculator
+// Includes: steps, workouts, and cardio sessions
 
-// Metabolic Equivalent of Task (MET) values for different exercises
-// Source: Compendium of Physical Activities
-const EXERCISE_METS = {
-  // Cardio exercises
-  'running': 8.0,
-  'jogging': 6.0,
-  'walking': 3.5,
-  'cycling': 6.0,
-  'swimming': 7.0,
-  'jumping jacks': 8.0,
-  'burpees': 10.0,
-  'mountain climbers': 8.0,
-  'high knees': 8.0,
-  'jump rope': 12.0,
-  'squat jumps': 8.0,
-  'lunge jumps': 8.0,
-  'plank jacks': 6.0,
-  'bear crawls': 8.0,
-  'crab walks': 6.0,
-  
-  // HIIT exercises
-  'hiit': 8.5,
-  'tabata': 9.0,
-  'circuit training': 7.0,
-  
-  // Strength exercises (for comparison)
-  'weight lifting': 5.0,
-  'bodyweight exercises': 6.0,
-  'resistance training': 5.5,
-  
-  // Default fallback
-  'default': 6.0
-};
+import supabase from '../lib/supabase';
 
 /**
- * Calculate calories burned for cardio exercise
- * @param {Object} params - Calculation parameters
- * @param {number} params.duration - Duration in minutes
- * @param {number} params.weight - User weight in kg
- * @param {string} params.exerciseName - Name of the exercise
- * @param {number} params.intensity - Intensity level (25-100)
- * @param {number} params.rounds - Number of rounds
+ * Calculate calories burned from steps (personalized)
+ * @param {number} steps - Number of steps
+ * @param {number} weight_kg - User weight in kg
+ * @param {number} height_cm - User height in cm
+ * @param {number} age - User age
+ * @param {string} gender - User gender ('male' or 'female')
  * @returns {number} Calories burned
  */
-export const calculateCardioCalories = ({
-  duration,
-  weight,
-  exerciseName,
-  intensity = 50,
-  rounds = 1
-}) => {
-  if (!duration || !weight) {
-    return 0;
-  }
-
-  // Get MET value for the exercise
-  const metValue = getMETValue(exerciseName);
+export function calculateStepCalories(steps, weight_kg, height_cm, age, gender) {
+  // More accurate formula based on stride length and body metrics
+  // Average stride length: height * 0.415 (for walking)
+  const strideLengthMeters = (height_cm / 100) * 0.415;
+  const distanceKm = (steps * strideLengthMeters) / 1000;
   
-  // Apply intensity multiplier (intensity is 25-100, convert to 0.5-2.0 multiplier)
-  const intensityMultiplier = (intensity / 50);
+  // MET (Metabolic Equivalent) for walking at moderate pace: 3.5
+  // Calories = MET × weight(kg) × time(hours)
+  // Average walking speed: 5 km/h
+  const timeHours = distanceKm / 5;
+  const MET = 3.5;
   
-  // Calculate calories using the standard formula:
-  // Calories = MET × Weight(kg) × Time(hours) × Intensity
-  const caloriesPerRound = metValue * weight * (duration / 60) * intensityMultiplier;
+  // Adjust for gender (men typically burn ~5% more)
+  const genderMultiplier = gender === 'male' ? 1.05 : 1.0;
   
-  // Multiply by number of rounds
-  const totalCalories = caloriesPerRound * rounds;
+  const calories = MET * weight_kg * timeHours * genderMultiplier;
   
-  return Math.round(totalCalories);
-};
+  return Math.round(calories);
+}
 
 /**
- * Calculate calories burned for HIIT workout
- * @param {Array} exercises - Array of exercise objects
- * @param {number} weight - User weight in kg
- * @param {number} intensity - Overall intensity level
- * @param {number} totalRounds - Total rounds of the workout
- * @returns {number} Total calories burned
- */
-export const calculateHIITCalories = (exercises, weight, intensity = 50, totalRounds = 1) => {
-  if (!exercises || exercises.length === 0 || !weight) {
-    return 0;
-  }
-
-  let totalCalories = 0;
-  
-  exercises.forEach(exercise => {
-    const duration = parseInt(exercise.duration) || 45; // seconds
-    const rounds = parseInt(exercise.rounds) || 1;
-    
-    const exerciseCalories = calculateCardioCalories({
-      duration: duration / 60, // convert to minutes
-      weight,
-      exerciseName: exercise.name,
-      intensity,
-      rounds: rounds * totalRounds
-    });
-    
-    totalCalories += exerciseCalories;
-  });
-  
-  return Math.round(totalCalories);
-};
-
-/**
- * Calculate calories burned for strength exercises
- * @param {Object} params - Calculation parameters
- * @param {number} params.duration - Duration in minutes
- * @param {number} params.weight - User weight in kg
- * @param {number} params.weightLifted - Total weight lifted in kg
- * @param {number} params.reps - Number of repetitions
- * @param {number} params.sets - Number of sets
- * @param {number} params.intensity - Intensity level
+ * Calculate calories burned from strength training workout
+ * @param {number} duration_minutes - Workout duration in minutes
+ * @param {number} weight_kg - User weight in kg
+ * @param {string} intensity - 'light', 'moderate', or 'vigorous'
  * @returns {number} Calories burned
  */
-export const calculateStrengthCalories = ({
-  duration,
-  weight,
-  weightLifted = 0,
-  reps = 0,
-  sets = 1,
-  intensity = 50
-}) => {
-  if (!duration || !weight) {
-    return 0;
-  }
-
-  // Base MET for strength training
-  const baseMET = 5.0;
+export function calculateStrengthCalories(duration_minutes, weight_kg, intensity = 'moderate') {
+  // MET values for strength training
+  const MET_VALUES = {
+    light: 3.5,      // Light effort
+    moderate: 5.0,   // Moderate effort
+    vigorous: 6.0,   // Vigorous effort
+  };
   
-  // Apply intensity multiplier
-  const intensityMultiplier = (intensity / 50);
+  const MET = MET_VALUES[intensity] || MET_VALUES.moderate;
+  const timeHours = duration_minutes / 60;
   
-  // Calculate base calories
-  const baseCalories = baseMET * weight * (duration / 60) * intensityMultiplier;
-  
-  // Add calories for weight lifted (0.05 calories per kg lifted)
-  const weightCalories = weightLifted * 0.05;
-  
-  // Add calories for reps (0.1 calories per rep)
-  const repCalories = reps * 0.1;
-  
-  const totalCalories = baseCalories + weightCalories + repCalories;
-  
-  return Math.round(Math.max(totalCalories, 3)); // minimum 3 calories
-};
+  return Math.round(MET * weight_kg * timeHours);
+}
 
 /**
- * Get MET value for exercise name
- * @param {string} exerciseName - Name of the exercise
- * @returns {number} MET value
+ * Calculate calories burned from cardio exercise
+ * @param {string} exerciseType - Type of cardio (running, cycling, etc.)
+ * @param {number} duration_minutes - Duration in minutes
+ * @param {number} weight_kg - User weight in kg
+ * @param {string} intensity - 'light', 'moderate', or 'vigorous'
+ * @returns {number} Calories burned
  */
-const getMETValue = (exerciseName) => {
-  if (!exerciseName) return EXERCISE_METS.default;
+export function calculateCardioCalories(exerciseType, duration_minutes, weight_kg, intensity = 'moderate') {
+  // MET values for common cardio exercises
+  const MET_VALUES = {
+    // Running
+    'running': { light: 6.0, moderate: 9.8, vigorous: 12.3 },
+    'jogging': { light: 6.0, moderate: 7.0, vigorous: 8.3 },
+    
+    // Cycling
+    'cycling': { light: 4.0, moderate: 8.0, vigorous: 12.0 },
+    'stationary bike': { light: 3.5, moderate: 6.8, vigorous: 10.5 },
+    
+    // Swimming
+    'swimming': { light: 6.0, moderate: 8.0, vigorous: 11.0 },
+    
+    // Other cardio
+    'jumping jacks': { light: 7.0, moderate: 8.0, vigorous: 10.0 },
+    'burpees': { light: 8.0, moderate: 10.0, vigorous: 12.0 },
+    'mountain climbers': { light: 7.0, moderate: 8.0, vigorous: 10.0 },
+    'jump rope': { light: 8.0, moderate: 10.0, vigorous: 12.0 },
+    'rowing': { light: 4.5, moderate: 7.0, vigorous: 12.0 },
+    'elliptical': { light: 5.0, moderate: 7.0, vigorous: 9.0 },
+    'stair climbing': { light: 6.0, moderate: 8.0, vigorous: 11.0 },
+    'walking': { light: 3.0, moderate: 3.5, vigorous: 4.5 },
+    'hiit': { light: 8.0, moderate: 10.0, vigorous: 12.5 },
+    
+    // Default for unknown exercises
+    'default': { light: 5.0, moderate: 7.0, vigorous: 9.0 },
+  };
   
-  const name = exerciseName.toLowerCase();
+  // Find matching exercise (case-insensitive, partial match)
+  const exerciseLower = exerciseType.toLowerCase();
+  let MET = MET_VALUES.default[intensity];
   
-  // Check for exact matches first
-  if (EXERCISE_METS[name]) {
-    return EXERCISE_METS[name];
-  }
-  
-  // Check for partial matches
-  for (const [key, value] of Object.entries(EXERCISE_METS)) {
-    if (name.includes(key) || key.includes(name)) {
-      return value;
+  for (const [key, values] of Object.entries(MET_VALUES)) {
+    if (exerciseLower.includes(key) || key.includes(exerciseLower)) {
+      MET = values[intensity] || values.moderate;
+      break;
     }
   }
   
-  // Check for common exercise patterns
-  if (name.includes('jump') || name.includes('burpee') || name.includes('mountain')) {
-    return EXERCISE_METS['jumping jacks'];
-  }
-  
-  if (name.includes('run') || name.includes('jog')) {
-    return EXERCISE_METS.running;
-  }
-  
-  if (name.includes('walk')) {
-    return EXERCISE_METS.walking;
-  }
-  
-  if (name.includes('cycle') || name.includes('bike')) {
-    return EXERCISE_METS.cycling;
-  }
-  
-  if (name.includes('swim')) {
-    return EXERCISE_METS.swimming;
-  }
-  
-  if (name.includes('hiit') || name.includes('tabata')) {
-    return EXERCISE_METS.hiit;
-  }
-  
-  // Default to moderate cardio
-  return EXERCISE_METS.default;
-};
+  const timeHours = duration_minutes / 60;
+  return Math.round(MET * weight_kg * timeHours);
+}
 
 /**
- * Calculate calories burned per minute for a given exercise
- * @param {string} exerciseName - Name of the exercise
- * @param {number} weight - User weight in kg
- * @param {number} intensity - Intensity level (25-100)
- * @returns {number} Calories per minute
+ * Calculate total workout calories (for compatibility with WorkoutStartScreen)
+ * @param {Object} params - Parameters object
+ * @param {number} params.duration - Duration in minutes
+ * @param {number} params.weight - User weight in kg
+ * @param {string} params.exerciseName - Name of the exercise
+ * @param {string} params.intensity - Intensity level (light/moderate/vigorous)
+ * @param {number} params.rounds - Number of rounds
+ * @returns {number} Calories burned
  */
-export const getCaloriesPerMinute = (exerciseName, weight, intensity = 50) => {
-  const metValue = getMETValue(exerciseName);
-  const intensityMultiplier = (intensity / 50);
-  
-  return Math.round(metValue * weight * (1/60) * intensityMultiplier * 10) / 10; // Round to 1 decimal
-};
-
-/**
- * Calculate total workout calories with rest periods
- * @param {Array} exercises - Array of exercise objects
- * @param {number} weight - User weight in kg
- * @param {number} intensity - Overall intensity level
- * @param {number} totalRounds - Total rounds
- * @param {number} restBetweenRounds - Rest time between rounds in seconds
- * @returns {Object} {totalCalories, exerciseCalories, restCalories}
- */
-export const calculateTotalWorkoutCalories = (exercises, weight, intensity, totalRounds, restBetweenRounds = 0) => {
-  if (!exercises || exercises.length === 0 || !weight) {
-    return { totalCalories: 0, exerciseCalories: 0, restCalories: 0 };
-  }
-
-  let exerciseCalories = 0;
-  let totalDuration = 0;
-  
-  exercises.forEach(exercise => {
-    const duration = parseInt(exercise.duration) || 45;
-    const rounds = parseInt(exercise.rounds) || 1;
-    const exerciseTime = (duration / 60) * rounds * totalRounds; // minutes
-    
-    const calories = calculateCardioCalories({
-      duration: exerciseTime,
-      weight,
-      exerciseName: exercise.name,
-      intensity,
-      rounds: 1
-    });
-    
-    exerciseCalories += calories;
-    totalDuration += exerciseTime;
-  });
-  
-  // Calculate rest calories (very low MET value)
-  const restTime = (restBetweenRounds / 60) * Math.max(0, totalRounds - 1);
-  const restCalories = restTime > 0 ? Math.round(1.5 * weight * restTime) : 0; // 1.5 MET for light rest
-  
-  const totalCalories = exerciseCalories + restCalories;
-  
-  return {
-    totalCalories: Math.round(totalCalories),
-    exerciseCalories: Math.round(exerciseCalories),
-    restCalories: Math.round(restCalories)
+export function calculateTotalWorkoutCalories({ duration, weight, exerciseName, intensity, rounds = 1 }) {
+  const intensityMap = {
+    low: 'light',
+    medium: 'moderate',
+    high: 'vigorous',
   };
-};
+  
+  const mappedIntensity = intensityMap[intensity?.toLowerCase()] || 'moderate';
+  const totalDuration = duration * rounds;
+  
+  return calculateCardioCalories(exerciseName, totalDuration, weight, mappedIntensity);
+}
 
-export default {
-  calculateCardioCalories,
-  calculateHIITCalories,
-  calculateStrengthCalories,
-  getCaloriesPerMinute,
-  calculateTotalWorkoutCalories,
-  EXERCISE_METS
-};
+/**
+ * Fetch today's total calories burned from all sources
+ * @param {string} userId - User ID
+ * @param {Object} userProfile - User profile data (weight, height, age, gender)
+ * @param {Date} date - Date to fetch calories for (defaults to today)
+ * @returns {Promise<Object>} { total, steps, workouts, cardio, breakdown }
+ */
+export async function getTodayCaloriesBurned(userId, userProfile, date = new Date()) {
+  const dateString = date.toISOString().split('T')[0];
+  
+  let totalCalories = 0;
+  let stepCalories = 0;
+  let workoutCalories = 0;
+  let cardioCalories = 0;
+  const breakdown = [];
+  
+  try {
+    // 1. Get step calories from steps table
+    const { data: stepsData } = await supabase
+      .from('steps')
+      .select('steps, calories')
+      .eq('user_id', userId)
+      .eq('date', dateString)
+      .single();
+    
+    if (stepsData && stepsData.steps > 0) {
+      // Recalculate with personalized formula if profile available
+      if (userProfile?.weight && userProfile?.height) {
+        stepCalories = calculateStepCalories(
+          stepsData.steps,
+          userProfile.weight,
+          userProfile.height,
+          userProfile.age || 30,
+          userProfile.gender || 'female'
+        );
+      } else {
+        // Fallback to stored value
+        stepCalories = stepsData.calories || 0;
+      }
+      
+      breakdown.push({
+        type: 'steps',
+        name: `${stepsData.steps} steps`,
+        calories: stepCalories,
+      });
+    }
+    
+    // 2. Get workout calories from workouts table
+    const { data: workoutsData } = await supabase
+      .from('workouts')
+      .select('id, duration, total_kcal')
+      .eq('user_id', userId)
+      .eq('date', dateString);
+    
+    if (workoutsData && workoutsData.length > 0) {
+      for (const workout of workoutsData) {
+        let calories = workout.total_kcal || 0;
+        
+        // If no calories stored, estimate based on duration
+        if (!calories && workout.duration && userProfile?.weight) {
+          const durationMinutes = workout.duration / 60;
+          calories = calculateStrengthCalories(durationMinutes, userProfile.weight, 'moderate');
+        }
+        
+        workoutCalories += calories;
+        breakdown.push({
+          type: 'workout',
+          name: `Strength Training`,
+          duration: workout.duration,
+          calories: calories,
+        });
+      }
+    }
+    
+    // 3. Get cardio calories from saved_cardio_sessions table
+    const { data: cardioData } = await supabase
+      .from('saved_cardio_sessions')
+      .select('id, name, estimated_time, estimated_calories, created_at')
+      .eq('user_id', userId)
+      .gte('created_at', `${dateString}T00:00:00`)
+      .lte('created_at', `${dateString}T23:59:59`);
+    
+    if (cardioData && cardioData.length > 0) {
+      for (const session of cardioData) {
+        let calories = session.estimated_calories || 0;
+        
+        // If no calories stored, estimate based on duration
+        if (!calories && session.estimated_time && userProfile?.weight) {
+          const durationMinutes = session.estimated_time / 60;
+          calories = calculateCardioCalories(session.name, durationMinutes, userProfile.weight, 'moderate');
+        }
+        
+        cardioCalories += calories;
+        breakdown.push({
+          type: 'cardio',
+          name: session.name,
+          duration: session.estimated_time,
+          calories: calories,
+        });
+      }
+    }
+    
+    totalCalories = stepCalories + workoutCalories + cardioCalories;
+    
+    return {
+      total: Math.round(totalCalories),
+      steps: Math.round(stepCalories),
+      workouts: Math.round(workoutCalories),
+      cardio: Math.round(cardioCalories),
+      breakdown,
+    };
+    
+  } catch (error) {
+    console.error('Error calculating calories burned:', error);
+    return {
+      total: 0,
+      steps: 0,
+      workouts: 0,
+      cardio: 0,
+      breakdown: [],
+    };
+  }
+}
+
+/**
+ * Update step calories in database with personalized calculation
+ * @param {string} userId - User ID
+ * @param {number} steps - Number of steps
+ * @param {Object} userProfile - User profile data
+ */
+export async function updateStepCaloriesInDatabase(userId, steps, userProfile) {
+  if (!userProfile?.weight || !userProfile?.height) {
+    return; // Can't calculate without profile data
+  }
+  
+  const calories = calculateStepCalories(
+    steps,
+    userProfile.weight,
+    userProfile.height,
+    userProfile.age || 30,
+    userProfile.gender || 'female'
+  );
+  
+  const dateString = new Date().toISOString().split('T')[0];
+  
+  try {
+    await supabase
+      .from('steps')
+      .update({ calories })
+      .eq('user_id', userId)
+      .eq('date', dateString);
+  } catch (error) {
+    console.error('Error updating step calories:', error);
+  }
+}

@@ -27,6 +27,8 @@ import { OnboardingContext } from "../context/OnboardingContext";
 import supabase from "../lib/supabase";
 import { createFoodLog, deleteFoodLog, getFoodLogs } from "../utils/api";
 import { getHomeScreenCache, invalidateHomeScreenCache, updateHomeScreenCacheOptimistic } from "../utils/cacheManager";
+import { getTodayCaloriesBurned } from "../utils/calorieCalculator";
+import { getFoodStreak, recalculateFoodStreak, updateFoodStreak } from "../utils/streakService";
 import useTodaySteps from "../utils/useTodaySteps";
 
 const screenWidth = Dimensions.get("window").width;
@@ -34,8 +36,75 @@ const screenWidth = Dimensions.get("window").width;
 // Use centralized cache
 const globalHomeCache = getHomeScreenCache();
 
+// Streak cache to prevent unnecessary re-fetches
+const streakCache = {
+  lastFetch: 0,
+  cachedStreak: null,
+  CACHE_DURATION: 30000, // 30 seconds
+};
+
+// Username cache to prevent re-fetching
+const userNameCache = {
+  lastFetch: 0,
+  cachedName: null,
+  CACHE_DURATION: 300000, // 5 minutes
+};
+
 // Export for backward compatibility
 export { invalidateHomeScreenCache, updateHomeScreenCacheOptimistic as updateHomeScreenCache };
+
+// Memoized Header Component to prevent re-renders
+const HomeHeader = React.memo(({ userName, selectedDate, navigation }) => {
+  return (
+    <View style={styles.header}>
+      <View>
+        <Text style={styles.greeting}>Hello, {userName}</Text>
+        <Text style={styles.date}>
+          {selectedDate.toLocaleDateString('en-US', { 
+            weekday: 'long', 
+            month: 'long', 
+            day: 'numeric' 
+          })}
+        </Text>
+      </View>
+      <View style={{flexDirection: 'row', alignItems: 'center'}}>
+        <TouchableOpacity 
+          style={styles.headerButton} 
+          onPress={() => navigation.navigate('ProgressScreen')}
+        >
+          <Ionicons name="stats-chart-outline" size={24} color="#7B61FF" />
+        </TouchableOpacity>
+        <TouchableOpacity 
+          onPress={() => navigation.navigate('Exercise')} 
+          style={styles.headerButton}
+        >
+          <Ionicons name="barbell-outline" size={24} color="#7B61FF" />
+        </TouchableOpacity>
+      </View>
+    </View>
+  );
+}, (prevProps, nextProps) => {
+  // Only re-render if userName or selectedDate actually changed
+  return prevProps.userName === nextProps.userName && 
+         prevProps.selectedDate.getTime() === nextProps.selectedDate.getTime();
+});
+HomeHeader.displayName = 'HomeHeader';
+
+// Memoized Streak Badge Component
+const StreakBadge = React.memo(({ calorieStreak }) => {
+  return (
+    <View style={styles.streakBadge}>
+      <Text style={styles.streakEmoji}>🔥</Text>
+      <Text style={styles.streakText}>
+        {calorieStreak > 0 ? `${calorieStreak}-day streak` : '0-day streak'}
+      </Text>
+    </View>
+  );
+}, (prevProps, nextProps) => {
+  // Only re-render if streak value changed
+  return prevProps.calorieStreak === nextProps.calorieStreak;
+});
+StreakBadge.displayName = 'StreakBadge';
 
 // Add FooterBar component (same as MainDashboard)
 const FooterBar = ({ navigation, activeTab }) => {
@@ -266,6 +335,9 @@ const HomeScreen = ({ navigation }) => {
   const [expandedMeal, setExpandedMeal] = useState(null);
   const [selectedMeals, setSelectedMeals] = useState(new Set());
   const [isSelectionMode, setIsSelectionMode] = useState(false);
+  const [calorieStreak, setCalorieStreak] = useState(0);
+  const [totalCaloriesBurned, setTotalCaloriesBurned] = useState(0);
+  const [calorieBreakdown, setCalorieBreakdown] = useState({ steps: 0, workouts: 0, cardio: 0 });
   const { stepsToday, calories: stepCalories } = useTodaySteps();
   const { onboardingData } = useContext(OnboardingContext);
 
@@ -339,15 +411,26 @@ const HomeScreen = ({ navigation }) => {
       if (session?.user?.id) {
         setUser({ id: session.user.id });
 
-        // Fetch user's name from database
-        const { data: profileData } = await supabase
-          .from("user_profile")
-          .select("name")
-          .eq("id", session.user.id)
-          .single();
+        // Check username cache first
+        const now = Date.now();
+        const timeSinceLastFetch = now - userNameCache.lastFetch;
+        
+        if (userNameCache.cachedName && timeSinceLastFetch < userNameCache.CACHE_DURATION) {
+          // Use cached username
+          setUserName(userNameCache.cachedName);
+        } else {
+          // Fetch user's name from database
+          const { data: profileData } = await supabase
+            .from("user_profile")
+            .select("name")
+            .eq("id", session.user.id)
+            .single();
 
-        if (profileData?.name) {
-          setUserName(profileData.name);
+          if (profileData?.name) {
+            userNameCache.cachedName = profileData.name;
+            userNameCache.lastFetch = now;
+            setUserName(profileData.name);
+          }
         }
       }
     };
@@ -372,14 +455,63 @@ const HomeScreen = ({ navigation }) => {
   useFocusEffect(
     React.useCallback(() => {
       if (user && user.id && selectedDate) {
-        // Clear cache when date changes to force fresh data fetch
+        // Clear cache when returning to screen to force fresh data fetch
         globalHomeCache.cachedData = null;
         globalHomeCache.lastFetchTime = 0;
         fetchFoodLogs(selectedDate);
+        
+        // Fetch comprehensive calories burned
+        fetchCaloriesBurned();
+        
+        // Reload streak with caching to prevent unnecessary re-fetches
+        const loadStreak = async () => {
+          try {
+            const now = Date.now();
+            const timeSinceLastFetch = now - streakCache.lastFetch;
+            
+            // Use cached streak if it's fresh (within 30 seconds)
+            if (streakCache.cachedStreak !== null && timeSinceLastFetch < streakCache.CACHE_DURATION) {
+              setCalorieStreak(streakCache.cachedStreak);
+              return;
+            }
+            
+            // Fetch fresh streak
+            const currentStreak = await getFoodStreak(user.id);
+            streakCache.cachedStreak = currentStreak;
+            streakCache.lastFetch = now;
+            setCalorieStreak(currentStreak);
+          } catch (error) {
+            console.error('Error loading streak:', error);
+          }
+        };
+        loadStreak();
       }
       // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [user?.id, selectedDate])
   );
+
+  const fetchCaloriesBurned = async () => {
+    if (!user?.id) return;
+    
+    try {
+      const userProfile = {
+        weight: weight_kg,
+        height: height_cm,
+        age: age,
+        gender: gender,
+      };
+      
+      const caloriesData = await getTodayCaloriesBurned(user.id, userProfile, selectedDate);
+      setTotalCaloriesBurned(caloriesData.total);
+      setCalorieBreakdown({
+        steps: caloriesData.steps,
+        workouts: caloriesData.workouts,
+        cardio: caloriesData.cardio,
+      });
+    } catch (error) {
+      console.error('Error fetching calories burned:', error);
+    }
+  };
 
   const fetchFoodLogs = async (date) => {
     // Create a unique cache key for each date
@@ -472,6 +604,23 @@ const HomeScreen = ({ navigation }) => {
       
       // Update cache timestamp
       globalHomeCache.lastFetchTime = Date.now();
+
+      // Update and get food streak from database
+      if (user.id && filteredLogs.length > 0) {
+        await updateFoodStreak(user.id);
+        const currentStreak = await getFoodStreak(user.id);
+        // Update cache
+        streakCache.cachedStreak = currentStreak;
+        streakCache.lastFetch = Date.now();
+        setCalorieStreak(currentStreak);
+      } else if (user.id) {
+        // Just get current streak if no logs today
+        const currentStreak = await getFoodStreak(user.id);
+        // Update cache
+        streakCache.cachedStreak = currentStreak;
+        streakCache.lastFetch = Date.now();
+        setCalorieStreak(currentStreak);
+      }
     } catch (error) {
       console.error("Error fetching food logs:", error);
     } finally {
@@ -635,11 +784,23 @@ const HomeScreen = ({ navigation }) => {
       // Refresh data from database
       await fetchFoodLogs(selectedDate);
       
+      // Recalculate streak from scratch based on remaining logs
+      console.log('🔄 Recalculating streak after deletion...');
+      await recalculateFoodStreak(user.id);
+      
+      // Get updated streak and display it
+      const updatedStreak = await getFoodStreak(user.id);
+      // Invalidate and update streak cache
+      streakCache.cachedStreak = updatedStreak;
+      streakCache.lastFetch = Date.now();
+      setCalorieStreak(updatedStreak);
+      
       setSelectedMeals(new Set());
       setIsSelectionMode(false);
       
       Alert.alert("Success", "Selected meals deleted successfully.");
     } catch (e) {
+      console.error('Error in handleDeleteSelected:', e);
       Alert.alert("Error", "Failed to delete selected meals.");
     }
   };
@@ -691,25 +852,13 @@ const HomeScreen = ({ navigation }) => {
   const calorieBalance = dailyGoal - totals.calories;
   const balanceSign = calorieBalance > 0 ? "+" : calorieBalance < 0 ? "-" : "";
   const balanceDisplay = `${balanceSign}${Math.abs(calorieBalance)}`;
-  const caloriesBurned = stepCalories || 0;
+  // Use comprehensive calories (steps + workouts + cardio)
+  const caloriesBurned = totalCaloriesBurned || 0;
 
   return (
     <SafeAreaView style={styles.container} edges={['top']}>
       <ScrollView showsVerticalScrollIndicator={false}>
-      <View style={styles.header}>
-          <View>
-            <Text style={styles.greeting}>Hello, {userName}</Text>
-            <Text style={styles.date}>{selectedDate.toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric' })}</Text>
-          </View>
-          <View style={{flexDirection: 'row', alignItems: 'center'}}>
-            <TouchableOpacity style={styles.headerButton} onPress={() => navigation.navigate('ProgressScreen')}>
-              <Ionicons name="stats-chart-outline" size={24} color="#7B61FF" />
-            </TouchableOpacity>
-            <TouchableOpacity onPress={() => navigation.navigate('Exercise')} style={styles.headerButton}>
-              <Ionicons name="barbell-outline" size={24} color="#7B61FF" />
-            </TouchableOpacity>
-          </View>
-        </View>
+      <HomeHeader userName={userName} selectedDate={selectedDate} navigation={navigation} />
 
         <View
           style={{
@@ -839,14 +988,17 @@ const HomeScreen = ({ navigation }) => {
             </View>
           </View>
           <View style={styles.pillRow}>
-            <View style={[styles.pill, styles.pillBurned]}>
-              <Text style={styles.pillLabel}>Calories Burned</Text>
-              <Text style={styles.pillValueBurned}>{caloriesBurned}</Text>
+            <View style={{flexDirection: 'row', alignItems: 'center'}}>
+              <View style={[styles.pill, styles.pillBurned]}>
+                <Text style={styles.pillLabel}>Calories Burned</Text>
+                <Text style={styles.pillValueBurned}>{caloriesBurned}</Text>
+              </View>
+              <View style={[styles.pill, styles.pillBalance]}>
+                <Text style={styles.pillLabel}>Balance</Text>
+                <Text style={styles.pillValueBalance}>{balanceDisplay}</Text>
+              </View>
             </View>
-            <View style={[styles.pill, styles.pillBalance]}>
-              <Text style={styles.pillLabel}>Balance</Text>
-              <Text style={styles.pillValueBalance}>{balanceDisplay}</Text>
-            </View>
+            {calorieStreak > 0 && <StreakBadge calorieStreak={calorieStreak} />}
           </View>
         </View>
 
@@ -1286,6 +1438,28 @@ const styles = StyleSheet.create({
     borderRadius: 15,
   },
   dateChipText: { color: "#7B61FF", fontWeight: "bold", marginLeft: 6 },
+  streakContainer: {
+    alignItems: "center",
+    marginTop: 8,
+    marginBottom: 4,
+  },
+  streakBadge: {
+    flexDirection: "row",
+    alignItems: "center",
+    backgroundColor: "#FEF3F2",
+    paddingVertical: 4,
+    paddingHorizontal: 10,
+    borderRadius: 16,
+  },
+  streakEmoji: {
+    fontSize: 14,
+    marginRight: 4,
+  },
+  streakText: {
+    fontFamily: "Lexend-SemiBold",
+    fontSize: 12,
+    color: "#181A20",
+  },
   summaryBody: {
     flexDirection: "row",
     justifyContent: "space-between",
@@ -1304,7 +1478,8 @@ const styles = StyleSheet.create({
 
   pillRow: {
     flexDirection: "row",
-    justifyContent: "flex-start",
+    justifyContent: "space-between",
+    alignItems: "center",
     marginTop: 8,
     marginBottom: 8,
   },
