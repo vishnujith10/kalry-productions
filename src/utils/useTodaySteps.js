@@ -60,53 +60,39 @@ const useTodaySteps = () => {
     try {
       const today = getTodayDateString();
       
-      // Check if entry exists for today
+      // Check if entry exists for today (use maybeSingle to avoid errors)
       const { data: existing } = await supabase
         .from('steps')
         .select('*')
         .eq('user_id', userId)
         .eq('date', today)
-        .single();
+        .maybeSingle();
       
-      const updateData = {
+      const upsertData = {
+        user_id: userId,
+        date: today,
         steps: steps,
         distance: distance,
         calories: caloriesBurned,
         updated_at: new Date().toISOString()
       };
       
-      // Include goal if provided
+      // Include goal if provided, or preserve existing goal
       if (goalValue !== null) {
-        updateData.goal = goalValue;
+        upsertData.goal = goalValue;
+      } else if (existing?.goal) {
+        upsertData.goal = existing.goal;
       }
       
-      if (existing) {
-        // Update existing entry
-        const { error } = await supabase
-          .from('steps')
-          .update(updateData)
-          .eq('id', existing.id);
-        
-        if (error) console.error('Error updating steps:', error);
-      } else {
-        // Insert new entry
-        const insertData = {
-          user_id: userId,
-          date: today,
-          steps: steps,
-          distance: distance,
-          calories: caloriesBurned
-        };
-        
-        if (goalValue !== null) {
-          insertData.goal = goalValue;
-        }
-        
-        const { error } = await supabase
-          .from('steps')
-          .insert([insertData]);
-        
-        if (error) console.error('Error inserting steps:', error);
+      // Use UPSERT to avoid duplicate key errors
+      const { error } = await supabase
+        .from('steps')
+        .upsert(upsertData, {
+          onConflict: 'user_id,date'
+        });
+      
+      if (error) {
+        console.error('Error upserting steps:', error);
       }
     } catch (error) {
       console.error('Error saving steps to database:', error);

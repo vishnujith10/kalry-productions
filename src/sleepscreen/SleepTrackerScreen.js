@@ -23,12 +23,15 @@ const MOODS = ["Relaxed", "Neutral", "Tired", "Stressed"];
 // Get screen dimensions
 const { height: screenHeight } = Dimensions.get('window');
 
-// Global cache for sleep logs
+// Global cache for sleep logs and UI state
 const globalSleepCache = {
   cachedData: null,
   timestamp: null,
   isStale: false,
   CACHE_DURATION: 5000, // 5 seconds
+  // Cache button states to prevent flickering
+  buttonStates: null,
+  todayHasSleepLog: false,
 };
 
 const SleepTrackerScreen = () => {
@@ -45,7 +48,7 @@ const SleepTrackerScreen = () => {
   const [scheduledBedtime, setScheduledBedtime] = useState("22:00");
   const [scheduledWakeup, setScheduledWakeup] = useState("07:30");
   const [isEditingSchedule, setIsEditingSchedule] = useState(false);
-  const [todayHasSleepLog, setTodayHasSleepLog] = useState(false);
+  const [todayHasSleepLog, setTodayHasSleepLog] = useState(() => globalSleepCache.todayHasSleepLog || false);
   
   const [showLogModal, setShowLogModal] = useState(false);
   const [quality, setQuality] = useState("Good");
@@ -132,16 +135,25 @@ const SleepTrackerScreen = () => {
       .padStart(2, "0")}:00`;
   };
 
-  // FIXED: Memoized button states to prevent infinite re-renders
+  // FIXED: Memoized button states to prevent infinite re-renders and flickering
   const buttonStates = useMemo(() => {
+    // Use cached button states if available and data hasn't changed
+    if (globalSleepCache.buttonStates && 
+        globalSleepCache.cachedData === sleepLogs && 
+        !isEditingSchedule) {
+      return globalSleepCache.buttonStates;
+    }
+
     const todayStr = getTodayString();
     const todayLog = sleepLogs.find(
       (l) => getDateOnly(l.date) === todayStr && l.user_id === realUserId
     );
     
+    let newButtonStates;
+    
     if (!todayLog) {
       // State 1: Before logging (no log today)
-      return {
+      newButtonStates = {
         canClickBedtime: true,        // Always clickable
         canClickWakeup: true,         // Always clickable  
         canClickLog: scheduledBedtime && scheduledWakeup, // Only when both times set
@@ -151,7 +163,7 @@ const SleepTrackerScreen = () => {
     } else {
       // State 2: After logging (log exists today)
       if (!isEditingSchedule) {
-        return {
+        newButtonStates = {
           canClickBedtime: false,     // Non-clickable
           canClickWakeup: false,      // Non-clickable
           canClickLog: false,         // Non-clickable
@@ -160,7 +172,7 @@ const SleepTrackerScreen = () => {
         };
       } else {
         // State 3: Editing existing log
-        return {
+        newButtonStates = {
           canClickBedtime: true,      // Clickable when editing
           canClickWakeup: true,       // Clickable when editing
           canClickLog: true,          // Clickable for update
@@ -169,11 +181,19 @@ const SleepTrackerScreen = () => {
         };
       }
     }
+    
+    // Cache the button states
+    globalSleepCache.buttonStates = newButtonStates;
+    globalSleepCache.todayHasSleepLog = newButtonStates.hasLog;
+    
+    return newButtonStates;
   }, [sleepLogs, realUserId, scheduledBedtime, scheduledWakeup, isEditingSchedule]);
 
   // FIXED: Update todayHasSleepLog based on button states
   useEffect(() => {
     setTodayHasSleepLog(buttonStates.hasLog);
+    // Update cache
+    globalSleepCache.todayHasSleepLog = buttonStates.hasLog;
   }, [buttonStates.hasLog]);
 
   const groupLogsByMonth = (logs) => {
@@ -684,7 +704,7 @@ const SleepTrackerScreen = () => {
             </View>
             <View style={{ flex: 1 }}>
               <Text style={styles.lastNightLabel}>
-                Last Night's Sleep
+                Last Night&apos;s Sleep
               </Text>
               <Text style={styles.lastNightDuration}>
                 {todayDuration}
@@ -717,12 +737,9 @@ const SleepTrackerScreen = () => {
           </View>
 
           {/* Weekly Chart */}
-          <Text style={styles.sectionTitle}>
-            Weekly Chart
-          </Text>
           <View style={styles.weeklyCard}>
             <View style={styles.chartContainer}>
-              {["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"].map((d, idx) => {
+              {["M", "T", "W", "T", "F", "S", "S"].map((d, idx) => {
                 const dayDate = weekDateObjs[idx];
                 const key = dayDate.toISOString().slice(0, 10);
                 const log = weekLogMap[key];
@@ -730,21 +747,15 @@ const SleepTrackerScreen = () => {
                   log && log.duration ? parseIntervalToMinutes(log.duration) : 0;
                 const progress =
                   sleepGoal > 0 ? Math.min(1, mins / (sleepGoal * 60)) : 0;
-                const filled = 120 * progress;
+                
+                // Show minimum 1% height for visual consistency
+                const minHeight = 1.4; // 1% of 140px
+                const filled = progress > 0 ? Math.max(minHeight, 140 * progress) : minHeight;
 
                 return (
                   <View key={key} style={styles.barContainer}>
                     <View style={styles.barTrack}>
-                      {filled > 0 ? (
-                        <LinearGradient
-                          colors={["#C4B5FD", "#A7F3D0"]}
-                          start={{ x: 0, y: 0 }}
-                          end={{ x: 0, y: 1 }}
-                          style={{ width: "100%", height: filled }}
-                        />
-                      ) : (
-                        <View style={styles.emptyBar} />
-                      )}
+                      <View style={[styles.filledBar, { height: filled }]} />
                     </View>
                     <Text style={styles.dayLabel}>
                       {d}
@@ -1277,44 +1288,50 @@ const styles = StyleSheet.create({
   // Weekly Chart
   weeklyCard: {
     backgroundColor: "#fff",
-    borderRadius: 16,
-    padding: 16,
+    borderRadius: 20,
+    padding: 20,
     marginBottom: 20,
     shadowColor: "#000",
-    shadowOpacity: 0.05,
-    shadowRadius: 8,
-    elevation: 3,
+    shadowOpacity: 0.08,
+    shadowRadius: 12,
+    shadowOffset: { width: 0, height: 4 },
+    elevation: 5,
   },
   chartContainer: {
     flexDirection: "row",
-    justifyContent: "space-between",
+    justifyContent: "space-around",
     alignItems: "flex-end",
-    height: 140,
+    height: 160,
+    paddingHorizontal: 8,
   },
   barContainer: {
     alignItems: "center", 
-    width: 32,
+    flex: 1,
+    maxWidth: 40,
   },
   barTrack: {
-    width: 22,
-    height: 120,
-    borderRadius: 12,
-    backgroundColor: "#E5E7EB",
+    width: 32,
+    height: 140,
+    borderRadius: 6,
+    // backgroundColor: "#E8E9F3",
     overflow: "hidden",
     justifyContent: "flex-end",
     position: "relative",
   },
+  filledBar: {
+    width: "100%",
+    backgroundColor: "#7B61FF",
+    borderRadius: 6,
+  },
   emptyBar: {
     width: "100%",
-    height: 120,
-    backgroundColor: "#F3F4F6",
-    justifyContent: "center",
-    alignItems: "center",
+    height: 0,
   },
   dayLabel: {
-    color: "#6B7280", 
-    fontSize: 12, 
-    marginTop: 8,
+    color: "#9CA3AF", 
+    fontSize: 13, 
+    fontWeight: "600",
+    marginTop: 10,
   },
   noDataMessage: {
     alignItems: "center", 

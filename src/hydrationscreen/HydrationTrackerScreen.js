@@ -859,7 +859,7 @@ const HydrationTrackerScreen = () => {
             {
               height: animatedHeight,
               backgroundColor: backgroundColor,
-              borderRadius: 15, // Always rounded for circle effect
+              borderRadius: 4, // Always rounded for circle effect
             }
           ]}
         />
