@@ -107,25 +107,80 @@ export function calculateCardioCalories(exerciseType, duration_minutes, weight_k
 
 /**
  * Calculate total workout calories (for compatibility with WorkoutStartScreen)
- * @param {Object} params - Parameters object
- * @param {number} params.duration - Duration in minutes
- * @param {number} params.weight - User weight in kg
- * @param {string} params.exerciseName - Name of the exercise
- * @param {string} params.intensity - Intensity level (light/moderate/vigorous)
- * @param {number} params.rounds - Number of rounds
- * @returns {number} Calories burned
+ * Supports both object parameter and positional parameters for exercises array
+ * @param {Object|Array} params - Parameters object OR exercises array
+ * @param {number} weight - User weight (when first param is array)
+ * @param {number|string} intensity - Intensity level (when first param is array)
+ * @param {number} maxRounds - Max rounds (when first param is array)
+ * @param {number} restBetweenRounds - Rest between rounds (when first param is array)
+ * @returns {number|Object} Calories burned (number) or { totalCalories } (object)
  */
-export function calculateTotalWorkoutCalories({ duration, weight, exerciseName, intensity, rounds = 1 }) {
+export function calculateTotalWorkoutCalories(params, weight, intensity, maxRounds, restBetweenRounds) {
+  // Check if first parameter is an array (exercises array)
+  if (Array.isArray(params)) {
+    const exercises = params;
+    
+    if (!exercises || exercises.length === 0) {
+      return { totalCalories: 0 };
+    }
+
+    const intensityMap = {
+      low: 'light',
+      medium: 'moderate',
+      high: 'vigorous',
+    };
+    
+    // Handle both string and numeric intensity values
+    let intensityKey = intensity;
+    if (typeof intensity === 'number') {
+      if (intensity <= 33) intensityKey = 'low';
+      else if (intensity <= 66) intensityKey = 'medium';
+      else intensityKey = 'high';
+    } else if (typeof intensity === 'string') {
+      intensityKey = intensity.toLowerCase();
+    }
+    
+    const mappedIntensity = intensityMap[intensityKey] || 'moderate';
+    
+    // Calculate total calories for all exercises
+    let totalCalories = 0;
+    
+    exercises.forEach(exercise => {
+      const duration = parseInt(exercise.duration) || 45; // in seconds
+      const rounds = exercise.rounds || 1;
+      const durationMinutes = (duration * rounds) / 60;
+      const exerciseName = ((exercise.name || exercise.exerciseName) || 'cardio').toLowerCase();
+      
+      const calories = calculateCardioCalories(exerciseName, durationMinutes, weight, mappedIntensity);
+      totalCalories += calories;
+    });
+    
+    return { totalCalories: Math.round(totalCalories) };
+  }
+  
+  // Original object-based call (for WorkoutStartScreen compatibility)
+  const { duration, weight: w, exerciseName, intensity: i, rounds = 1 } = params;
+  
   const intensityMap = {
     low: 'light',
     medium: 'moderate',
     high: 'vigorous',
   };
   
-  const mappedIntensity = intensityMap[intensity?.toLowerCase()] || 'moderate';
+  // Handle both string and numeric intensity values
+  let intensityKey = i;
+  if (typeof i === 'number') {
+    if (i <= 33) intensityKey = 'low';
+    else if (i <= 66) intensityKey = 'medium';
+    else intensityKey = 'high';
+  } else if (typeof i === 'string') {
+    intensityKey = i.toLowerCase();
+  }
+  
+  const mappedIntensity = intensityMap[intensityKey] || 'moderate';
   const totalDuration = duration * rounds;
   
-  return calculateCardioCalories(exerciseName, totalDuration, weight, mappedIntensity);
+  return calculateCardioCalories(exerciseName || 'cardio', totalDuration, w, mappedIntensity);
 }
 
 /**

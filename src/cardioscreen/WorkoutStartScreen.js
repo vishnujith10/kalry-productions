@@ -4,6 +4,8 @@ import { Alert, Animated, Dimensions, Image, ScrollView, StyleSheet, Text, Touch
 import { SafeAreaView } from 'react-native-safe-area-context';
 import supabase from '../lib/supabase';
 import { calculateCardioCalories, calculateTotalWorkoutCalories } from '../utils/calorieCalculator';
+import { workoutAnalyticsService } from '../algorithms/WorkoutAnalyticsService';
+import WorkoutFeedbackModal from '../components/WorkoutFeedbackModal';
 
 const { width } = Dimensions.get('window');
 
@@ -46,6 +48,10 @@ export default function WorkoutStartScreen({ route, navigation }) {
   
   // User weight for accurate calorie calculations
   const [userWeight, setUserWeight] = useState(70); // Default 70kg
+  
+  // Workout feedback modal
+  const [showFeedbackModal, setShowFeedbackModal] = useState(false);
+  const [workoutFeedback, setWorkoutFeedback] = useState(null);
   
   // Timer refs
   const timerRef = useRef(null);
@@ -405,13 +411,12 @@ export default function WorkoutStartScreen({ route, navigation }) {
           auto_repeat: false,
           notes: 'Completed Workout',
           estimated_time: parseInt(exercise.duration) || 45, // Individual exercise duration
-          estimated_calories: calculateCardioCalories({
-            duration: (parseInt(exercise.duration) || 45) / 60, // convert to minutes
-            weight: userWeight,
-            exerciseName: exercise.name,
-            intensity: intensity,
-            rounds: parseInt(exercise.rounds) || 1
-          })
+          estimated_calories: calculateCardioCalories(
+            exercise.name || 'cardio',
+            (parseInt(exercise.duration) || 45) / 60, // convert to minutes
+            userWeight,
+            intensity <= 33 ? 'light' : intensity <= 66 ? 'moderate' : 'vigorous'
+          ) * (parseInt(exercise.rounds) || 1)
         };
 
 
@@ -445,6 +450,64 @@ export default function WorkoutStartScreen({ route, navigation }) {
         console.log('✅ Exercise streak updated after completing cardio workout');
       } catch (error) {
         console.error('Error updating exercise streak:', error);
+      }
+
+      // Generate workout analytics feedback
+      try {
+        await workoutAnalyticsService.initialize(userId);
+        
+        // Log the cardio workout to analytics
+        const muscleGroups = [...new Set(exercises.map(ex => {
+          // Extract muscle groups from exercise name or default to 'cardio'
+          const name = (ex.name || '').toLowerCase();
+          if (name.includes('leg') || name.includes('squat') || name.includes('lunge')) return 'legs';
+          if (name.includes('arm') || name.includes('bicep') || name.includes('tricep')) return 'arms';
+          if (name.includes('chest') || name.includes('push')) return 'chest';
+          if (name.includes('back') || name.includes('pull')) return 'back';
+          if (name.includes('shoulder')) return 'shoulders';
+          if (name.includes('core') || name.includes('ab')) return 'core';
+          return 'cardio';
+        }))];
+        
+        // Calculate total duration
+        const totalDuration = exercises.reduce((sum, ex) => {
+          const duration = parseInt(ex.duration) || 45;
+          const rounds = parseInt(ex.rounds) || 1;
+          return sum + (duration * rounds);
+        }, 0);
+        
+        await workoutAnalyticsService.logWorkout({
+          exercises: exercises.map(ex => ({
+            name: ex.name || 'Cardio Exercise',
+            duration: parseInt(ex.duration) || 45,
+            rounds: parseInt(ex.rounds) || 1,
+            type: 'cardio'
+          })),
+          intensity: intensity <= 33 ? 'light' : intensity <= 66 ? 'moderate' : 'vigorous',
+          duration: totalDuration / 60, // Convert to minutes
+          date: new Date(),
+          muscleGroups
+        });
+        
+        // Get post-workout summary
+        const feedback = await workoutAnalyticsService.getPostWorkoutSummary({
+          exercises: exercises.map(ex => ({
+            name: ex.name || 'Cardio Exercise',
+            duration: parseInt(ex.duration) || 45,
+            rounds: parseInt(ex.rounds) || 1
+          })),
+          intensity: intensity <= 33 ? 'light' : intensity <= 66 ? 'moderate' : 'vigorous',
+          duration: totalDuration / 60,
+          muscleGroups
+        });
+        
+        setWorkoutFeedback(feedback);
+        setShowFeedbackModal(true);
+        
+        console.log('✅ Cardio workout analytics generated');
+      } catch (error) {
+        console.error('Error generating cardio workout analytics:', error);
+        // Don't block the user if analytics fail
       }
 
       Alert.alert(
@@ -757,6 +820,13 @@ export default function WorkoutStartScreen({ route, navigation }) {
           <Ionicons name="play-skip-forward" size={24} color={COLORS.white} />
         </TouchableOpacity>
       </View>
+
+      {/* Workout Feedback Modal */}
+      <WorkoutFeedbackModal
+        visible={showFeedbackModal}
+        onClose={() => setShowFeedbackModal(false)}
+        feedback={workoutFeedback}
+      />
     </SafeAreaView>
   );
 }

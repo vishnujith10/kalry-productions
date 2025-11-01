@@ -1,6 +1,6 @@
 
 import { Ionicons } from '@expo/vector-icons';
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { Alert, Animated, Dimensions, FlatList, Image, Modal, ScrollView, StatusBar, StyleSheet, Switch, Text, TextInput, TouchableOpacity, TouchableWithoutFeedback, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import supabase from '../lib/supabase';
@@ -35,12 +35,6 @@ const COLORS = {
 
 
 // Session Type Options
-  const SESSION_TYPES = [
-  ' Cardio', 
-  'HIIT',
-  'Custom'
-];
-
 // Session Templates
 const SESSION_TEMPLATES = {
   hiit: {
@@ -69,8 +63,6 @@ const SESSION_TEMPLATES = {
 export default function CardioSessionBuilder({ navigation }) {
   // State management
   const [sessionType, setSessionType] = useState('');
-  const [customSessionType, setCustomSessionType] = useState('');
-  const [showSessionTypeModal, setShowSessionTypeModal] = useState(false);
   const [exercises, setExercises] = useState([]);
   const [intensity, setIntensity] = useState(50);
   const [sliderActive, setSliderActive] = useState(false);
@@ -80,6 +72,24 @@ export default function CardioSessionBuilder({ navigation }) {
   const [soundOption, setSoundOption] = useState('ding');
   const [autoRepeat, setAutoRepeat] = useState(true);
   const [notes, setNotes] = useState('');
+  
+  // Intensity animation - sliding indicator position (0 = Low, 1 = Medium, 2 = High)
+  const getIntensityPosition = useCallback(() => {
+    if (intensity <= 33) return 0;
+    if (intensity > 33 && intensity <= 66) return 1;
+    return 2;
+  }, [intensity]);
+  
+  const [initialPosition] = useState(() => {
+    if (intensity <= 33) return 0;
+    if (intensity > 33 && intensity <= 66) return 1;
+    return 2;
+  });
+  
+  const intensitySlideAnim = useRef(new Animated.Value(initialPosition)).current;
+  
+  // Button width for sliding calculation
+  const [buttonWidth, setButtonWidth] = useState(0);
   
   // Database exercises state
   const [dbExercises, setDbExercises] = useState([]);
@@ -257,11 +267,20 @@ export default function CardioSessionBuilder({ navigation }) {
   }, [exercises, intensity, restBetweenRounds]);
 
   // Filter exercises based on search (using database data)
-  const filteredExercises = dbExercises.filter(ex =>
-    ex.name?.toLowerCase().includes(searchQuery.toLowerCase()) ||
-    ex.body_parts?.toLowerCase().includes(searchQuery.toLowerCase()) ||
-    ex.type?.toLowerCase().includes(searchQuery.toLowerCase())
-  );
+  const filteredExercises = dbExercises.filter(ex => {
+    if (!ex) return false;
+    
+    const searchLower = (searchQuery || '').toLowerCase();
+    const name = (ex.name || '').toLowerCase();
+    const bodyParts = (ex.body_parts || '').toLowerCase();
+    const type = (ex.type || '').toLowerCase();
+    
+    return (
+      name.includes(searchLower) ||
+      bodyParts.includes(searchLower) ||
+      type.includes(searchLower)
+    );
+  });
 
   // Debug logging
   console.log('Total exercises in DB:', dbExercises.length);
@@ -324,6 +343,19 @@ export default function CardioSessionBuilder({ navigation }) {
       useNativeDriver: false,
     }).start();
   }, [summary.totalCalories]);
+
+  // Animate intensity button transitions - smooth sliding effect
+  useEffect(() => {
+    const targetPosition = getIntensityPosition();
+    
+    Animated.spring(intensitySlideAnim, {
+      toValue: targetPosition,
+      useNativeDriver: true,
+      friction: 8,        // Lower = more bouncy, higher = less bouncy
+      tension: 40,        // Higher = faster animation
+      velocity: 2,        // Initial velocity
+    }).start();
+  }, [intensity, intensitySlideAnim, getIntensityPosition]);
 
   // Template loading
   const loadTemplate = (templateKey) => {
@@ -681,70 +713,89 @@ export default function CardioSessionBuilder({ navigation }) {
         <Text style={styles.headerTitle}>Build Your Cardio Session</Text>
         <Text style={styles.headerSubtitle}>Add exercises, set intensity, track progress</Text>
 
-        {/* Session Type Selector */}
+        {/* Session Name & Intensity Combined */}
         <View style={styles.card}>
-          <Text style={styles.cardTitle}>Session Type</Text>
-          <TouchableOpacity 
-            style={styles.sessionTypeSelector}
-            onPress={() => setShowSessionTypeModal(true)}
+          <Text style={styles.cardTitle}>Session Name & Intensity</Text>
+          
+          {/* Session Name Input */}
+          <TextInput
+            style={styles.sessionNameInput}
+            placeholder="e.g. Morning HIIT"
+            placeholderTextColor="#9CA3AF"
+            value={sessionType}
+            onChangeText={setSessionType}
+          />
+          
+          {/* Intensity Label */}
+          <Text style={styles.intensityLabel}>Intensity</Text>
+          
+          {/* Intensity Buttons */}
+          <View 
+            style={styles.intensityButtonsRow}
+            onLayout={(event) => {
+              const { width } = event.nativeEvent.layout;
+              // Calculate button width: (total width - padding) / 3 buttons
+              const calculatedWidth = (width - 8) / 3; // 8 = padding (4px * 2)
+              setButtonWidth(calculatedWidth);
+            }}
           >
-            <Text style={[
-              styles.sessionTypeText, 
-              !sessionType && styles.sessionTypePlaceholder
-            ]}>
-              {sessionType ? (sessionType === 'Custom' ? customSessionType : sessionType) : 'Select session type'}
-            </Text>
-            <Text style={styles.sessionTypeArrow}>▼</Text>
-          </TouchableOpacity>
-                        </View>
-
-        {/* Intensity Buttons */}
-        <View style={styles.card}>
-          <Text style={styles.cardTitle}>Intensity</Text>
-          <View style={styles.intensityLabels}>
+            {/* Sliding indicator background */}
+            {buttonWidth > 0 && (
+              <Animated.View 
+                style={[
+                  styles.slidingIndicator,
+                  {
+                    width: buttonWidth,
+                    transform: [{
+                      translateX: intensitySlideAnim.interpolate({
+                        inputRange: [0, 1, 2],
+                        outputRange: [0, buttonWidth + 4, (buttonWidth + 4) * 2], // +4 for middle button margin
+                      })
+                    }]
+                  }
+                ]} 
+              />
+            )}
+            
             <TouchableOpacity 
-              style={[
-                styles.intensityButton,
-                intensity <= 33 && styles.intensityButtonActive
-              ]}
+              style={styles.intensityButtonNew}
               onPress={() => setIntensity(25)}
+              activeOpacity={0.7}
             >
               <Text style={[
-                styles.intensityButtonText,
-                intensity <= 33 && styles.intensityButtonTextActive
+                styles.intensityButtonTextNew,
+                { color: intensity <= 33 ? '#FFFFFF' : '#6B7280' }
               ]}>Low</Text>
-                    </TouchableOpacity>
-                <TouchableOpacity
-              style={[
-                styles.intensityButton,
-                intensity > 33 && intensity <= 66 && styles.intensityButtonActive
-              ]}
+            </TouchableOpacity>
+            
+            <TouchableOpacity
+              style={[styles.intensityButtonNew, styles.intensityButtonMiddle]}
               onPress={() => setIntensity(50)}
+              activeOpacity={0.7}
             >
               <Text style={[
-                styles.intensityButtonText,
-                intensity > 33 && intensity <= 66 && styles.intensityButtonTextActive
+                styles.intensityButtonTextNew,
+                { color: intensity > 33 && intensity <= 66 ? '#FFFFFF' : '#6B7280' }
               ]}>Medium</Text>
-                </TouchableOpacity>
-                <TouchableOpacity
-              style={[
-                styles.intensityButton,
-                intensity > 66 && styles.intensityButtonActive
-              ]}
+            </TouchableOpacity>
+            
+            <TouchableOpacity
+              style={styles.intensityButtonNew}
               onPress={() => setIntensity(75)}
+              activeOpacity={0.7}
             >
               <Text style={[
-                styles.intensityButtonText,
-                intensity > 66 && styles.intensityButtonTextActive
+                styles.intensityButtonTextNew,
+                { color: intensity > 66 ? '#FFFFFF' : '#6B7280' }
               ]}>High</Text>
-                </TouchableOpacity>
-                      </View>
+            </TouchableOpacity>
+          </View>
         </View>
 
         {/* Exercises List */}
         <View style={styles.card}>
           <View style={styles.exerciseHeader}>
-            <Text style={styles.cardTitle}>Exercises ({exercises.length})</Text>
+            <Text style={styles.cardTitle}>Exercises List ({exercises.length})</Text>
             <TouchableOpacity style={styles.addButton} onPress={() => setAddModalVisible(true)}>
               <Text style={styles.addButtonText}>+ Add</Text>
                     </TouchableOpacity>
@@ -923,22 +974,39 @@ export default function CardioSessionBuilder({ navigation }) {
         {/* Session Summary */}
         <View style={styles.summaryCard}>
           <Text style={styles.summaryCardTitle}>Session Summary</Text>
-          <View style={styles.summaryGrid}>
-            <View style={styles.summaryItem}>
-              <Text style={styles.summaryIcon}>⏱️</Text>
-              <Text style={styles.summaryValue}>{summary.totalTime}</Text>
-              <Text style={styles.summaryLabel}>Minutes</Text>
-      </View>
-            <View style={styles.summaryItem}>
-              <Text style={styles.summaryIcon}>🔥</Text>
-              <Text style={styles.summaryValue}>{summary.totalCalories}</Text>
-              <Text style={styles.summaryLabel}>Calories</Text>
-        </View>
-            <View style={styles.summaryItem}>
-              <Text style={styles.summaryIcon}>📊</Text>
-              <Text style={styles.summaryValue}>{summary.difficulty}</Text>
-              <Text style={styles.summaryLabel}>Difficulty</Text>
-              </View>
+          
+          <View style={styles.summaryRow}>
+            <Text style={styles.summaryRowLabel}>Estimated Duration</Text>
+            <Text style={styles.summaryRowValue}>~{summary.totalTime} minutes</Text>
+          </View>
+          
+          <View style={styles.summaryRow}>
+            <Text style={styles.summaryRowLabel}>Total Exercises</Text>
+            <Text style={styles.summaryRowValue}>{exercises.length}</Text>
+          </View>
+          
+          <View style={styles.summaryRow}>
+            <Text style={styles.summaryRowLabel}>Total Rounds</Text>
+            <Text style={styles.summaryRowValue}>{exercises.length > 0 ? Math.max(...exercises.map(ex => ex.rounds || 1)) : 0}</Text>
+          </View>
+          
+          <View style={styles.summaryRow}>
+            <Text style={styles.summaryRowLabel}>Estimated Calories</Text>
+            <Text style={styles.summaryRowValue}>~{summary.totalCalories} kcal</Text>
+          </View>
+          
+          <View style={styles.summaryIntensityRow}>
+            <Text style={styles.summaryRowLabel}>
+              Intensity: {intensity <= 33 ? 'Low' : intensity <= 66 ? 'Medium' : 'High'}
+            </Text>
+            <View style={styles.intensityBar}>
+              <View 
+                style={[
+                  styles.intensityBarFill, 
+                  { width: `${intensity}%` }
+                ]} 
+              />
+            </View>
           </View>
         </View>
 
@@ -1158,50 +1226,6 @@ export default function CardioSessionBuilder({ navigation }) {
         </View>
       </Modal>
 
-      {/* Session Type Modal */}
-      <Modal
-        visible={showSessionTypeModal}
-        transparent
-        animationType="fade"
-        onRequestClose={() => setShowSessionTypeModal(false)}
-      >
-        <TouchableOpacity 
-          style={styles.sessionTypeModalOverlay}
-          activeOpacity={1}
-          onPress={() => setShowSessionTypeModal(false)}
-        >
-          <View style={styles.sessionTypeModal}>
-            <Text style={styles.sessionTypeModalTitle}>Select Session Type</Text>
-            {SESSION_TYPES.map((type) => (
-              <TouchableOpacity
-                key={type}
-                style={styles.sessionTypeOption}
-                onPress={() => {
-                  setSessionType(type);
-                  if (type !== 'Custom') {
-                    setCustomSessionType('');
-                  }
-                  setShowSessionTypeModal(false);
-                }}
-              >
-                <Text style={styles.sessionTypeOptionText}>{type}</Text>
-          </TouchableOpacity>
-            ))}
-            {sessionType === 'Custom' && (
-              <View style={styles.customInputContainer}>
-                <TextInput
-                  style={styles.customInput}
-                  placeholder="Enter custom session type"
-                  placeholderTextColor={COLORS.textSecondary}
-                  value={customSessionType}
-                  onChangeText={setCustomSessionType}
-                />
-              </View>
-            )}
-          </View>
-          </TouchableOpacity>
-      </Modal>
-
       {/* Success Toast */}
       <Animated.View style={[styles.toast, { transform: [{ translateY: slideAnim }] }]}>
         <Text style={styles.toastText}>Template loaded successfully! 🎉</Text>
@@ -1255,7 +1279,7 @@ const styles = StyleSheet.create({
 
   
   headerTitle: {
-    top: 20,
+    top: 1,
     fontSize: 28,
     fontWeight: '700',
     color: '#1f2937', // Dark gray for better readability
@@ -1327,6 +1351,66 @@ const styles = StyleSheet.create({
     marginBottom: 16,
   },
   
+  // New Session Name Input Styles
+  sessionNameInput: {
+    backgroundColor: '#F3F4F6',
+    borderRadius: 12,
+    padding: 16,
+    marginBottom: 20,
+    fontSize: 16,
+    color: '#1e293b',
+  },
+  
+  intensityLabel: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: '#6B7280',
+    marginBottom: 12,
+  },
+  
+  // New Intensity Buttons Row
+  intensityButtonsRow: {
+    flexDirection: 'row',
+    backgroundColor: '#F3F4F6',
+    borderRadius: 100,
+    padding: 4,
+    position: 'relative',
+  },
+  
+  slidingIndicator: {
+    position: 'absolute',
+    left: 4,
+    top: 4,
+    bottom: 4,
+    backgroundColor: '#7B61FF',
+    borderRadius: 100,
+    shadowColor: '#7B61FF',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.3,
+    shadowRadius: 4,
+    elevation: 3,
+  },
+  
+  intensityButtonNew: {
+    flex: 1,
+    paddingVertical: 10,
+    paddingHorizontal: 16,
+    borderRadius: 100,
+    alignItems: 'center',
+    justifyContent: 'center',
+    zIndex: 1,
+  },
+  
+  intensityButtonMiddle: {
+    marginHorizontal: 4,
+  },
+  
+  intensityButtonTextNew: {
+    fontSize: 14,
+    fontWeight: '600',
+  },
+  
+  // Old styles (keep for backward compatibility)
   sessionTypeSelector: {
     flexDirection: 'row',
     justifyContent: 'space-between',
@@ -1740,45 +1824,63 @@ const styles = StyleSheet.create({
   },
   
   summaryCard: {
-    backgroundColor: '#7c3aed',
+    backgroundColor: '#FFFFFF',
     borderRadius: 20,
-    padding: 24,
-    marginBottom: 16,
+    padding: 16,
+    marginBottom: 20,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.08,
+    shadowRadius: 8,
+    elevation: 3,
   },
   
   summaryCardTitle: {
-    fontSize: 18,
+    fontSize: 22,
     fontWeight: '700',
-    color: '#ffffff',
-    marginBottom: 16,
-    textAlign: 'center',
+    color: '#1F2937',
+    marginBottom: 12,
+    textAlign: 'left',
   },
   
-  summaryGrid: {
+  summaryRow: {
     flexDirection: 'row',
-    justifyContent: 'space-around',
-  },
-  
-  summaryItem: {
+    justifyContent: 'space-between',
     alignItems: 'center',
+    paddingVertical: 8,
   },
   
-  summaryIcon: {
-    fontSize: 32,
-    marginBottom: 8,
-  },
-  
-  summaryValue: {
-    fontSize: 24,
-    fontWeight: '800',
-    color: '#ffffff',
-    marginBottom: 4,
-  },
-  
-  summaryLabel: {
-    fontSize: 14,
-    color: 'rgba(255,255,255,0.8)',
+  summaryRowLabel: {
+    fontSize: 15,
+    color: '#9CA3AF',
     fontWeight: '500',
+  },
+  
+  summaryRowValue: {
+    fontSize: 15,
+    color: '#1F2937',
+    fontWeight: '700',
+  },
+  
+  summaryIntensityRow: {
+    paddingTop: 12,
+    marginTop: 4,
+    borderTopWidth: 1,
+    borderTopColor: '#F3F4F6',
+  },
+  
+  intensityBar: {
+    height: 8,
+    backgroundColor: '#F3F4F6',
+    borderRadius: 4,
+    marginTop: 8,
+    overflow: 'hidden',
+  },
+  
+  intensityBarFill: {
+    height: '100%',
+    backgroundColor: '#FF6B35',
+    borderRadius: 4,
   },
   
   actionButtonsContainer: {
@@ -2147,70 +2249,6 @@ const styles = StyleSheet.create({
     color: '#ffffff',
     fontSize: 16,
     fontWeight: '600',
-  },
-  
-  // Session Type Modal Styles
-  sessionTypeModalOverlay: {
-    flex: 1,
-    backgroundColor: 'rgba(0, 0, 0, 0.5)',
-    justifyContent: 'flex-start',
-    alignItems: 'center',
-    paddingTop: 120, // Account for header height
-  },
-  
-  sessionTypeModal: {
-    backgroundColor: '#ffffff',
-    borderRadius: 16,
-    padding: 24,
-    width: '80%',
-    maxHeight: '70%',
-    alignItems: 'center',
-    shadowColor: '#000',
-    shadowOffset: {
-      width: 0,
-      height: 4,
-    },
-    shadowOpacity: 0.15,
-    shadowRadius: 8,
-    elevation: 8,
-  },
-  
-  sessionTypeModalTitle: {
-    fontSize: 18,
-    fontWeight: '700',
-    color: '#1e293b',
-    marginBottom: 16,
-    textAlign: 'center',
-  },
-  
-  sessionTypeOption: {
-    paddingVertical: 16,
-    paddingHorizontal: 20,
-    borderBottomWidth: 1,
-    borderBottomColor: '#e2e8f0',
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  
-  sessionTypeOptionText: {
-    fontSize: 16,
-    color: '#1e293b',
-    fontWeight: '500',
-    textAlign: 'center',
-  },
-  
-  customInputContainer: {
-    marginTop: 16,
-  },
-  
-  customInput: {
-    borderWidth: 1,
-    borderColor: '#e2e8f0',
-    borderRadius: 8,
-    padding: 12,
-    fontSize: 16,
-    color: '#1e293b',
-    backgroundColor: '#f8fafc',
   },
   
   // Loading and Empty States

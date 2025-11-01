@@ -104,6 +104,8 @@ export async function saveWorkout({ userId, date, duration, totalKcal, notes, ex
         exercise_name: ex.name || ex.workout || 'Unknown Exercise',
         duration: ex.duration || 0, // Duration in seconds
         image_url: ex.gif_url || ex.image_url || null,
+        body_parts: ex.body_parts || null, // Muscle groups worked
+        date: date, // Date of workout
         order,
         total_sets: ex.sets.length,
         total_reps: totalReps,
@@ -131,6 +133,7 @@ export async function saveWorkout({ userId, date, duration, totalKcal, notes, ex
         rpe: set.rpe || null,
         duration: set.duration || null,
         completed: set.completed || false,
+        date: date, // Date of workout
       };
 
       // Add cardio-specific fields
@@ -196,6 +199,8 @@ export async function updateWorkout({ workoutId, userId, date, duration, totalKc
         exercise_name: ex.name || ex.workout || 'Unknown Exercise',
         duration: ex.duration || 0, // Duration in seconds
         image_url: ex.gif_url || ex.image_url || null,
+        body_parts: ex.body_parts || null, // Muscle groups worked
+        date: date, // Date of workout
         order,
         total_sets: ex.sets.length,
         total_reps: totalReps,
@@ -217,6 +222,7 @@ export async function updateWorkout({ workoutId, userId, date, duration, totalKc
         rpe: set.rpe || null,
         duration: set.duration || null,
         completed: set.completed || false,
+        date: date, // Date of workout
       };
       if (ex.type === 'Cardio') {
         setData.speed = set.speed ? parseFloat(set.speed) : null;
