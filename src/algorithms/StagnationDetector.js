@@ -67,10 +67,10 @@ export class StagnationDetector {
   /**
    * Check for stagnation in an exercise
    * @param {string} exercise - Exercise name
-   * @param {number} threshold - Number of sessions to check (default: 4)
+   * @param {number} threshold - Number of sessions to check (default: 6 for true plateau)
    * @returns {Object|null} - Stagnation info or null
    */
-  checkStagnation(exercise, threshold = 4) {
+  checkStagnation(exercise, threshold = 6) {
     const logs = this.exerciseLogs[exercise] || [];
     
     if (logs.length < threshold) {
@@ -99,7 +99,7 @@ export class StagnationDetector {
       return {
         type: 'complete_stagnation',
         severity: 'high',
-        message: `Plateau detected: ${exercise} at ${lastLog.weight}kg, ${lastLog.reps} reps, ${lastLog.sets} sets for ${threshold} sessions (${daysSinceFirst} days)`,
+        message: `Plateau detected: ${exercise} at ${lastLog.weight}kg, ${lastLog.reps} reps, ${lastLog.sets} sets for ${threshold}+ sessions (${daysSinceFirst} days)`,
         emoji: '⚠️',
         suggestion: this.getSuggestionForStagnation(lastLog),
         data: {
@@ -128,19 +128,20 @@ export class StagnationDetector {
       };
     }
 
-    // Volume stagnation: total volume hasn't increased
+    // Volume stagnation: total volume hasn't increased meaningfully
+    // Less than 10% variation over 6+ sessions indicates stagnation
     const volumes = recentLogs.map(l => l.volume);
     const avgVolume = volumes.reduce((a, b) => a + b, 0) / volumes.length;
     const volumeVariation = Math.max(...volumes) - Math.min(...volumes);
     const volumeVariationPercent = (volumeVariation / avgVolume) * 100;
 
-    if (volumeVariationPercent < 5) {
+    if (volumeVariationPercent < 10 && avgVolume > 0) {
       return {
         type: 'volume_stagnation',
         severity: 'low',
         message: `Volume plateau: ${exercise} total volume hasn't changed much`,
         emoji: '📊',
-        suggestion: 'Your total volume is flat. Try increasing weight, reps, or sets to progress.',
+        suggestion: 'Your total volume has been flat for several sessions. Try increasing weight, reps, or sets to progress.',
         data: {
           avgVolume: Math.round(avgVolume),
           variation: volumeVariationPercent.toFixed(1)
@@ -160,33 +161,59 @@ export class StagnationDetector {
     const { weight, reps, sets } = lastLog;
     const suggestions = [];
 
-    suggestions.push('**Try one of these strategies:**\n');
+    suggestions.push('**Try one of these evidence-based strategies:**\n');
 
-    // 1. Weight progression
-    const weightIncrease = weight >= 20 ? 5 : 2.5;
-    suggestions.push(`1️⃣ **Add Weight**: Increase to ${(weight + weightIncrease).toFixed(1)}kg (keep reps/sets same)`);
+    // Professional progression standards:
+    // - 5-10% weight increases are standard
+    // - Rep ranges: 8-12 for hypertrophy, 5-8 for strength
+    // - 3-5 sets optimal for most exercises
+
+    // 1. Weight progression (5-10% rule)
+    if (weight >= 20) {
+      suggestions.push(`1️⃣ **Add Weight**: Increase to ${(weight * 1.05).toFixed(1)}-${(weight * 1.10).toFixed(1)}kg (5-10% increase)`);
+    } else if (weight >= 5) {
+      suggestions.push(`1️⃣ **Add Weight**: Increase to ${(weight + 1).toFixed(1)}-${(weight * 1.10).toFixed(1)}kg (5-10% increase)`);
+    } else {
+      suggestions.push(`1️⃣ **Add Weight**: Increase by 0.5-1kg`);
+    }
 
     // 2. Rep progression
-    if (reps < 12) {
-      suggestions.push(`2️⃣ **Add Reps**: Aim for ${reps + 2} reps (keep weight/sets same)`);
+    if (reps < 8) {
+      suggestions.push(`2️⃣ **Add Reps**: Aim for ${reps + 1}-${reps + 2} reps (target: 8-12 for hypertrophy)`);
+    } else if (reps < 12) {
+      suggestions.push(`2️⃣ **Add Reps**: Aim for ${reps + 1}-${reps + 2} reps OR increase weight and use 6-8 reps`);
+    } else {
+      suggestions.push(`2️⃣ **Increase Weight**: You're doing 12+ reps. Increase weight by 5-10% and aim for 6-8 reps`);
     }
 
     // 3. Set progression
-    if (sets < 4) {
-      suggestions.push(`3️⃣ **Add Sets**: Do ${sets + 1} sets (keep weight/reps same)`);
+    if (sets < 3) {
+      suggestions.push(`3️⃣ **Add Sets**: Increase to 3-4 sets (optimal for most exercises)`);
+    } else if (sets < 5) {
+      suggestions.push(`3️⃣ **Add Sets**: Consider adding 1 more set (${sets + 1} sets total)`);
+    } else {
+      suggestions.push(`3️⃣ **Focus on Intensity**: ${sets} sets is sufficient. Focus on weight/reps instead.`);
     }
 
-    // 4. Tempo manipulation
-    suggestions.push(`4️⃣ **Slow Tempo**: Try 3-second lowering, 1-second pause, 3-second lifting`);
+    // 4. Tempo manipulation (time under tension)
+    suggestions.push(`4️⃣ **Tempo Training**: Use 3-2-1 tempo (3 sec eccentric, 2 sec pause, 1 sec concentric)`);
 
-    // 5. Rest time manipulation
-    suggestions.push(`5️⃣ **Reduce Rest**: Cut rest time by 15-30 seconds between sets`);
+    // 5. Rest time optimization
+    if (reps >= 12) {
+      suggestions.push(`5️⃣ **Time Under Tension**: Reduce rest to 60-90 seconds for hypertrophy`);
+    } else {
+      suggestions.push(`5️⃣ **Rest Optimization**: Ensure 2-3 min rest between sets for strength work`);
+    }
 
-    // 6. Exercise variation
-    suggestions.push(`6️⃣ **Try Variation**: Switch to a similar but different exercise`);
+    // 6. Exercise variation (muscle confusion)
+    suggestions.push(`6️⃣ **Exercise Variation**: Try a similar exercise (e.g., barbell → dumbbell, or vice versa)`);
 
-    // 7. Deload
+    // 7. Deload/Periodization
     suggestions.push(`7️⃣ **Deload Week**: Reduce weight by 20% for 1 week, then return stronger`);
+
+    // 8. Additional techniques
+    suggestions.push(`8️⃣ **Drop Sets**: After your working sets, reduce weight by 20-30% and do 1 more set to failure`);
+    suggestions.push(`9️⃣ **Progressive Overload**: Try increasing one variable per week (weight OR reps OR sets, not all)`);
 
     return suggestions.join('\n');
   }
@@ -199,12 +226,13 @@ export class StagnationDetector {
   checkPlateauBreak(exercise) {
     const logs = this.exerciseLogs[exercise] || [];
     
-    if (logs.length < 5) {
+    // Need at least 7 sessions to detect a plateau break (6 stagnant + 1 breakthrough)
+    if (logs.length < 7) {
       return null;
     }
 
-    // Check if previous 3-4 sessions were stagnant
-    const previousLogs = logs.slice(-5, -1);
+    // Check if previous 5-6 sessions were stagnant (needs at least 5 identical sessions)
+    const previousLogs = logs.slice(-7, -1);
     const lastLog = logs[logs.length - 1];
 
     const prevWeights = previousLogs.map(l => l.weight);

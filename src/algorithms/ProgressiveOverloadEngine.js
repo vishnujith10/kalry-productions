@@ -126,9 +126,10 @@ export class ProgressiveOverloadEngine {
       };
     }
 
-    // Check for stagnation (same numbers for multiple sessions)
+    // Check for stagnation - a true plateau is same numbers for 6+ sessions (4-6 weeks typically)
+    // 3-4 sessions with same numbers might be intentional periodization or maintenance
     let stagnantCount = 0;
-    const checkLimit = Math.min(3, logs.length);
+    const checkLimit = Math.min(6, logs.length); // Check last 6 sessions minimum
     
     for (let i = logs.length - 1; i >= 0 && (logs.length - i) <= checkLimit; i--) {
       if (logs[i].weight === last.weight &&
@@ -138,12 +139,22 @@ export class ProgressiveOverloadEngine {
       }
     }
 
-    if (stagnantCount >= 3) {
+    // Only warn if 6+ sessions with identical numbers (true plateau)
+    // For 4-5 sessions, give a gentler suggestion
+    if (stagnantCount >= 6) {
       return {
         type: 'stagnation',
-        message: `You've done ${last.weight}kg, ${last.reps} reps for ${last.sets} sets 3 sessions in a row.`,
+        message: `Plateau detected: ${last.weight}kg, ${last.reps} reps for ${last.sets} sets for ${stagnantCount} sessions.`,
         emoji: '⚠️',
         suggestion: this.getProgressionSuggestion(last)
+      };
+    } else if (stagnantCount >= 4) {
+      // Gentler suggestion for 4-5 sessions
+      return {
+        type: 'consistency',
+        message: `You've maintained ${last.weight}kg, ${last.reps} reps for ${stagnantCount} sessions.`,
+        emoji: '💡',
+        suggestion: 'Maintaining is fine, but consider progressive overload soon. Try adding weight, reps, or sets.'
       };
     }
 
@@ -164,29 +175,54 @@ export class ProgressiveOverloadEngine {
     const { weight, reps, sets } = lastSession;
     const suggestions = [];
 
-    // Weight progression (most effective for strength)
+    // Professional progression standards:
+    // - Weight: 2.5-5kg increments for heavier weights (20kg+), 1-2.5kg for lighter
+    // - Reps: Optimal range 8-12 for hypertrophy, 5-8 for strength
+    // - Sets: 3-5 sets optimal for most exercises
+    
+    // 1. Weight progression (most effective for strength)
     if (weight >= 20) {
-      suggestions.push(`Try adding 2.5-5kg (${(weight + 2.5).toFixed(1)}kg)`);
+      suggestions.push(`1️⃣ **Add Weight**: Increase to ${(weight + 2.5).toFixed(1)}-${(weight + 5).toFixed(1)}kg (5-10% increase)`);
+    } else if (weight >= 5) {
+      suggestions.push(`1️⃣ **Add Weight**: Increase to ${(weight + 1).toFixed(1)}-${(weight + 2.5).toFixed(1)}kg (5-10% increase)`);
     } else {
-      suggestions.push(`Try adding 1-2.5kg (${(weight + 1.5).toFixed(1)}kg)`);
+      suggestions.push(`1️⃣ **Add Weight**: Increase by 0.5-1kg`);
     }
 
-    // Rep progression (good for hypertrophy)
-    if (reps < 12) {
-      suggestions.push(`Add 1-2 reps (aim for ${reps + 2} reps)`);
+    // 2. Rep progression (good for hypertrophy)
+    if (reps < 8) {
+      // Low reps - focus on getting to 8-12 range for hypertrophy
+      suggestions.push(`2️⃣ **Add Reps**: Aim for ${reps + 1}-${reps + 2} reps (target: 8-12 for growth)`);
+    } else if (reps < 12) {
+      // In optimal range - can add reps or move to higher weight at lower reps
+      suggestions.push(`2️⃣ **Add Reps**: Aim for ${reps + 1}-${reps + 2} reps OR increase weight and drop to 6-8 reps`);
+    } else {
+      // High reps - time to increase weight
+      suggestions.push(`2️⃣ **Increase Weight**: You're doing 12+ reps. Increase weight by 5-10% and aim for 6-8 reps`);
     }
 
-    // Set progression (volume increase)
-    if (sets < 4) {
-      suggestions.push(`Add 1 more set (${sets + 1} sets total)`);
+    // 3. Set progression (volume increase)
+    if (sets < 3) {
+      suggestions.push(`3️⃣ **Add Sets**: Increase to 3-4 sets for better volume`);
+    } else if (sets < 5) {
+      suggestions.push(`3️⃣ **Add Sets**: Consider adding 1 more set (total: ${sets + 1} sets)`);
+    } else {
+      suggestions.push(`3️⃣ **Volume is sufficient**: ${sets} sets is plenty. Focus on weight/reps instead.`);
     }
 
-    // Advanced techniques
-    suggestions.push('Try slowing down the tempo (3-1-3)');
-    suggestions.push('Reduce rest time by 15 seconds');
-    suggestions.push('Try a variation of this exercise');
+    // 4. Advanced techniques
+    suggestions.push(`4️⃣ **Tempo Training**: Slow down eccentric (3-2-1 tempo: 3 sec down, 2 sec pause, 1 sec up)`);
+    
+    if (reps >= 12) {
+      suggestions.push(`5️⃣ **Time Under Tension**: Reduce rest time by 15-30 seconds between sets`);
+    } else {
+      suggestions.push(`5️⃣ **Rest Optimization**: Ensure 2-3 min rest between sets for strength work`);
+    }
+    
+    suggestions.push(`6️⃣ **Exercise Variation**: Try a similar exercise (e.g., dumbbell → barbell, or vice versa)`);
+    suggestions.push(`7️⃣ **Deload Week**: If feeling fatigued, reduce weight by 20% for 1 week, then return stronger`);
 
-    return suggestions.join('\n• ');
+    return suggestions.join('\n');
   }
 
   /**

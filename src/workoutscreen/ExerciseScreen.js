@@ -242,8 +242,30 @@ const ExerciseScreen = () => {
   // Use useFocusEffect to fetch data when screen comes into focus
   useFocusEffect(
     useCallback(() => {
-      fetchWorkoutData();
-    }, [fetchWorkoutData])
+      // Only fetch if cache is expired or doesn't exist
+      const now = Date.now();
+      const cacheExpired = !globalExerciseCache.cachedData || 
+                          (now - globalExerciseCache.lastFetch >= globalExerciseCache.cacheDuration);
+      
+      if (cacheExpired) {
+        fetchWorkoutData(false); // false = don't force refresh, use cache if valid
+      } else {
+        // Use cached data immediately - only update if values changed to prevent re-renders
+        const cached = globalExerciseCache.cachedData;
+        
+        // Only update state if values actually changed (prevents unnecessary re-renders)
+        if (JSON.stringify(cached.summary) !== JSON.stringify(summary)) {
+          setSummary(cached.summary);
+        }
+        if (cached.workoutStreak !== workoutStreak) {
+          setWorkoutStreak(cached.workoutStreak);
+        }
+        if (JSON.stringify(cached.workoutDates) !== JSON.stringify(workoutDates)) {
+          setWorkoutDates(cached.workoutDates);
+        }
+      }
+      // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [])
   );
 
   return (

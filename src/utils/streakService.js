@@ -242,6 +242,7 @@ export async function getExerciseStreak(userId) {
 
     const lastDate = new Date(streakData.exercise_last_log_date);
     const today = new Date();
+    const todayStr = today.toISOString().split('T')[0];
     const daysDiff = Math.floor((today - lastDate) / (1000 * 60 * 60 * 24));
 
     // Streak expires after buffer + 1 days
@@ -249,7 +250,54 @@ export async function getExerciseStreak(userId) {
       return 0;
     }
 
-    return streakData.exercise_streak;
+    // Check if there's actually a workout TODAY
+    // This ensures we don't count today if user hasn't worked out today
+    const [workoutsResult, cardioResult] = await Promise.all([
+      supabase
+        .from('workouts')
+        .select('id')
+        .eq('user_id', userId)
+        .gte('created_at', `${todayStr}T00:00:00`)
+        .lt('created_at', `${todayStr}T23:59:59`)
+        .limit(1),
+      supabase
+        .from('saved_cardio_sessions')
+        .select('id')
+        .eq('user_id', userId)
+        .gte('created_at', `${todayStr}T00:00:00`)
+        .lt('created_at', `${todayStr}T23:59:59`)
+        .limit(1)
+    ]);
+
+    const hasWorkoutToday = (workoutsResult.data && workoutsResult.data.length > 0) ||
+                           (cardioResult.data && cardioResult.data.length > 0);
+
+    // If last log date is today, verify there's actually a workout today
+    if (daysDiff === 0) {
+      if (hasWorkoutToday) {
+        // Valid: last log is today and there's a workout today
+        return streakData.exercise_streak;
+      } else {
+        // Invalid: last log says today but no workout found - recalculate
+        console.log('⚠️ Last log date is today but no workout found, recalculating...');
+        const recalculated = await recalculateExerciseStreak(userId);
+        return recalculated?.exercise_streak || 0;
+      }
+    }
+
+    // If last log was yesterday or earlier (daysDiff >= 1)
+    if (hasWorkoutToday) {
+      // User worked out today, so update streak
+      await updateExerciseStreak(userId);
+      const updatedData = await getUserStreaks(userId);
+      return updatedData?.exercise_streak || streakData.exercise_streak;
+    } else {
+      // No workout today - don't count today in streak
+      // Recalculate based on actual workout dates (excludes today)
+      console.log('⚠️ No workout today, recalculating streak from actual workout dates...');
+      const recalculated = await recalculateExerciseStreak(userId);
+      return recalculated?.exercise_streak || 0;
+    }
   } catch (error) {
     console.error('Error in getExerciseStreak:', error);
     return 0;

@@ -1,7 +1,6 @@
 import { Ionicons } from "@expo/vector-icons";
 import { GoogleGenerativeAI } from "@google/generative-ai";
 import { Audio } from "expo-av";
-import Constants from 'expo-constants';
 import * as FileSystem from "expo-file-system/legacy";
 import { LinearGradient } from "expo-linear-gradient";
 import React, { useEffect, useRef, useState } from "react";
@@ -9,6 +8,7 @@ import {
   ActivityIndicator,
   Alert,
   Animated,
+  Modal,
   PermissionsAndroid,
   Platform,
   StyleSheet,
@@ -17,14 +17,12 @@ import {
   View,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
-import { CompassionateFeedbackEngine } from "../algorithms/CompassionateFeedbackEngine"; // ✅ ADD THIS IMPORT
 import supabase from "../lib/supabase";
 import { createFoodLog } from "../utils/api";
 
 const VoiceCalorieScreen = ({ navigation, route }) => {
   const { mealType = "Quick Log", selectedDate } = route.params || {};
   const recordingRef = useRef(null);
-  
   const ensureAudioPermission = async () => {
     try {
       if (Platform.OS === 'android') {
@@ -33,15 +31,16 @@ const VoiceCalorieScreen = ({ navigation, route }) => {
         const res = await PermissionsAndroid.request(PermissionsAndroid.PERMISSIONS.RECORD_AUDIO);
         return res === PermissionsAndroid.RESULTS.GRANTED;
       }
+      // iOS: rely on system prompt when starting recording (NSMicrophoneUsageDescription set)
       return true;
     } catch (error) {
       console.log('Permission error:', error);
       return false;
     }
   };
-  
   const [isRecording, setIsRecording] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
+  const [isConverting, setIsConverting] = useState(false); // Separate state for Convert button processing
   const [nutritionData, setNutritionData] = useState(null);
   const [transcribedText, setTranscribedText] = useState("");
   const [lastRecordingUri, setLastRecordingUri] = useState(null);
@@ -50,22 +49,10 @@ const VoiceCalorieScreen = ({ navigation, route }) => {
   const [audioLevels, setAudioLevels] = useState(
     Array.from({ length: 20 }, () => 0)
   );
-  
-  // Use environment variables directly (from eas.json in production)
-  const apiKey = process.env.EXPO_PUBLIC_GEMINI_API_KEY || Constants.expoConfig?.extra?.EXPO_PUBLIC_GEMINI_API_KEY || "AIzaSyAJ4Df1p8dHhI88h72aG5CHY5rBFEJBWPQ";
-  
-  // Debug logging
-  console.log('VoiceCalorieScreen - API Key:', apiKey ? 'Found' : 'Missing');
-  console.log('VoiceCalorieScreen - process.env:', process.env.EXPO_PUBLIC_GEMINI_API_KEY ? 'Found' : 'Missing');
-  console.log('VoiceCalorieScreen - Constants:', Constants.expoConfig?.extra?.EXPO_PUBLIC_GEMINI_API_KEY ? 'Found' : 'Missing');
-  
-  // Validate API key
-  if (!apiKey) {
-    console.error('VoiceCalorieScreen - No API key found!');
-    throw new Error('AI service configuration error. Please check your settings.');
-  }
-  
+  const apiKey = process.env.EXPO_PUBLIC_GEMINI_API_KEY;
   const genAI = new GoogleGenerativeAI(apiKey);
+
+  // Recording animation removed
 
   useEffect(() => {
     return () => {
@@ -80,6 +67,8 @@ const VoiceCalorieScreen = ({ navigation, route }) => {
       }
     };
   }, []);
+
+  // Recording animation removed
 
   const startRecording = async () => {
     try {
@@ -116,6 +105,7 @@ const VoiceCalorieScreen = ({ navigation, route }) => {
       ).start();
       setNutritionData(null);
       setTranscribedText("");
+      // No waveform animation; only mic pulse
     } catch (err) {
       console.log('startRecording error (VoiceCalorieScreen):', err);
       Alert.alert("Recording Error", "Could not start recording.");
@@ -129,31 +119,71 @@ const VoiceCalorieScreen = ({ navigation, route }) => {
       micPulse.setValue(0);
     });
     if (!recordingRef.current) return;
+    
     try {
       await recordingRef.current.stopAndUnloadAsync();
       const uri = recordingRef.current.getURI();
       recordingRef.current = null;
-      if (uri) setLastRecordingUri(uri);
+      
+      if (uri) {
+        setLastRecordingUri(uri);
+        // Automatically transcribe when stopping to show what user said
+        setIsLoading(true);
+        await transcribeAudio(uri);
+        setIsLoading(false);
+      }
     } catch (error) {
-      // ignore
+      console.log('Stop recording error:', error);
+      setIsLoading(false);
+    }
+  };
+
+  // Transcribe audio and show transcription
+  const transcribeAudio = async (uri) => {
+    try {
+      const model = genAI.getGenerativeModel({ model: "gemini-2.0-flash" });
+      const audioData = await FileSystem.readAsStringAsync(uri, {
+        encoding: "base64",
+      });
+      
+      const prompt = `Transcribe ONLY what the user said in this audio. Return ONLY the spoken words, no JSON, no punctuation, no explanations.`;
+
+      const result = await model.generateContent([
+        prompt,
+        { inlineData: { mimeType: "audio/mp4", data: audioData } },
+      ]);
+      
+      const response = await result.response;
+      let text = response.text().trim();
+      
+      // Clean response
+      text = text.replace(/```json\s*/g, '').replace(/```\s*/g, '').trim();
+      text = text.replace(/^["']|["']$/g, '');
+      const jsonMatch = text.match(/\{[\s\S]*"transcription"\s*:\s*"([^"]+)"/);
+      if (jsonMatch) text = jsonMatch[1];
+      text = text.replace(/^transcription[:\s]*/i, '').trim();
+      text = text.replace(/^["']|["']$/g, '').trim();
+      
+      if (text && text.length > 0) {
+        setTranscribedText(text);
+      }
+    } catch (error) {
+      console.log('Transcription error:', error);
+      setTranscribedText("Could not transcribe audio. Please try again.");
     }
   };
 
   const handleVoiceToCalorie = async (uri) => {
     setIsLoading(true);
+    setIsConverting(true); // Show full-screen loading modal
     try {
-      const models = ["gemini-2.0-flash", "gemini-1.5-flash", "gemini-1.5-pro"];
-      let lastError = null;
-
-      for (const modelName of models) {
-        try {
-          const model = genAI.getGenerativeModel({ model: modelName });
-          const audioData = await FileSystem.readAsStringAsync(uri, {
-            encoding: "base64",
-          });
-          
-          // Enhanced prompt to include micronutrients for better feedback
-          const prompt = `Analyze the food items in this audio. Your response MUST be a single valid JSON object and nothing else. Do not include markdown formatting like \`\`json.
+      // Use fastest model (gemini-2.0-flash is optimized for speed)
+      const model = genAI.getGenerativeModel({ model: "gemini-2.0-flash" });
+      const audioData = await FileSystem.readAsStringAsync(uri, {
+        encoding: "base64",
+      });
+      
+      const prompt = `Analyze the food items in this audio. Your response MUST be a single valid JSON object and nothing else. Do not include markdown formatting like \`\`\`json.
 
 🚨 CRITICAL QUANTITY PRESERVATION RULES 🚨
 1. If the audio does NOT contain any food items or is unclear, respond with: {"error": "No food items detected. Please speak clearly about what you ate."}
@@ -203,110 +233,80 @@ const VoiceCalorieScreen = ({ navigation, route }) => {
    - Burger: ~550 calories, 30g protein, 40g carbs, 25g fat, 3g fiber
 
 The JSON object must have this structure: 
-{ 
-  "transcription": "The full text of what you heard", 
-  "items": [ 
-    { 
-      "name": "EXACT_QUANTITY + food item", 
-      "calories": <number>, 
-      "protein": <number>, 
-      "carbs": <number>, 
-      "fat": <number>, 
-      "fiber": <number>,
-      "micronutrients": {
-        "iron": <boolean>,
-        "potassium": <boolean>,
-        "vitaminC": <boolean>,
-        "calcium": <boolean>
-      }
-    } 
-  ], 
-  "total": { 
-    "calories": <number>, 
-    "protein": <number>, 
-    "carbs": <number>, 
-    "fat": <number>, 
-    "fiber": <number> 
-  } 
-}`;
+{ "transcription": "The full text of what you heard", "items": [ { "name": "EXACT_QUANTITY + food item", "calories": <number>, "protein": <number>, "carbs": <number>, "fat": <number>, "fiber": <number> } ], "total": { "calories": <number>, "protein": <number>, "carbs": <number>, "fat": <number>, "fiber": <number> } }`;
 
-          const result = await model.generateContent([
-            prompt,
-            { inlineData: { mimeType: "audio/mp4", data: audioData } },
-          ]);
-          const response = await result.response;
-          let text = response.text();
+      const result = await model.generateContent([
+        prompt,
+        { inlineData: { mimeType: "audio/mp4", data: audioData } },
+      ]);
+      const response = await result.response;
+      let text = response.text();
 
-          console.log("VoiceCalorieScreen - Raw AI response:", text);
+      console.log("VoiceCalorieScreen - Raw AI response:", text);
 
-          const jsonMatch = text.match(/\{[\s\S]*\}/);
+      const jsonMatch = text.match(/\{[\s\S]*\}/);
 
-          if (jsonMatch) {
-            const jsonString = jsonMatch[0];
-            console.log("VoiceCalorieScreen - Extracted JSON:", jsonString);
-            const data = JSON.parse(jsonString);
-            
-            // Check for error response
-            if (data.error) {
-              throw new Error(data.error);
-            }
-
-            if (
-              !data.total ||
-              !Array.isArray(data.items) ||
-              !data.transcription
-            ) {
-              throw new Error("Invalid JSON structure from API.");
-            }
-
-            // Check if any food items were detected
-            if (data.items.length === 0) {
-              throw new Error(
-                "No food items detected. Please speak clearly about what you ate."
-              );
-            }
-            setTranscribedText(data.transcription);
-            setShowListening(false);
-            setNutritionData({ ...data.total, items: data.items });
-
-            // Create clean food name from extracted items
-            const cleanFoodName = data.items
-              .map((item) => item.name)
-              .join(", ");
-
-            console.log("VoiceCalorieScreen - Generated data:", data);
-            console.log("VoiceCalorieScreen - Items:", data.items);
-            console.log("VoiceCalorieScreen - Clean food name:", cleanFoodName);
-            console.log("VoiceCalorieScreen - Total nutrition:", data.total);
-
-            navigation.replace("VoicePostCalorieScreen", {
-              analysis: {
-                total: {
-                  calories: data.total.calories,
-                  protein: data.total.protein,
-                  fat: data.total.fat,
-                  carbs: data.total.carbs,
-                  fiber: data.total.fiber || 0,
-                },
-                items: data.items,
-              },
-              cleanFoodName: cleanFoodName,
-            });
-            return;
-          } else {
-            throw new Error(
-              "Invalid JSON format from API. No JSON object found."
-            );
-          }
-        } catch (error) {
-          lastError = error;
-          console.log(`Model ${modelName} failed:`, error.message);
-          // Continue to next model
+      if (jsonMatch) {
+        const jsonString = jsonMatch[0];
+        console.log("VoiceCalorieScreen - Extracted JSON:", jsonString);
+        const data = JSON.parse(jsonString);
+        
+        // Check for error response
+        if (data.error) {
+          throw new Error(data.error);
         }
-      }
 
-      // If all models failed, show error
-      throw lastError || new Error("All AI models are currently unavailable.");
+        if (
+          !data.total ||
+          !Array.isArray(data.items) ||
+          !data.transcription
+        ) {
+          throw new Error("Invalid JSON structure from API.");
+        }
+
+        // Check if any food items were detected
+        if (data.items.length === 0) {
+          throw new Error(
+            "No food items detected. Please speak clearly about what you ate."
+          );
+        }
+        
+        // Update transcription if we got a new one from food analysis (may be more accurate)
+        if (data.transcription) {
+          setTranscribedText(data.transcription);
+        }
+        setShowListening(false);
+        setNutritionData({ ...data.total, items: data.items });
+
+        // Create clean food name from extracted items (just quantities and food names)
+        const cleanFoodName = data.items
+          .map((item) => item.name)
+          .join(", ");
+
+        console.log("VoiceCalorieScreen - Generated data:", data);
+        console.log("VoiceCalorieScreen - Items:", data.items);
+        console.log("VoiceCalorieScreen - Clean food name:", cleanFoodName);
+        console.log("VoiceCalorieScreen - Total nutrition:", data.total);
+
+        navigation.replace("VoicePostCalorieScreen", {
+          analysis: {
+            total: {
+              calories: data.total.calories,
+              protein: data.total.protein,
+              fat: data.total.fat,
+              carbs: data.total.carbs,
+              fiber: data.total.fiber || 0,
+            },
+            items: data.items,
+          },
+          cleanFoodName: cleanFoodName,
+        });
+        return;
+      } else {
+        throw new Error(
+          "Invalid JSON format from API. No JSON object found."
+        );
+      }
     } catch (error) {
       const msg = String(error?.message || "").toLowerCase();
       // User-friendly fallback when speech wasn't recognized
@@ -334,10 +334,10 @@ The JSON object must have this structure:
       setShowListening(false);
     } finally {
       setIsLoading(false);
+      setIsConverting(false); // Hide full-screen loading modal
     }
   };
 
-  // ✅ UPDATED: handleConfirmLog with Compassionate Feedback
   const handleConfirmLog = async () => {
     if (!nutritionData) return;
     try {
@@ -348,7 +348,6 @@ The JSON object must have this structure:
         protein: nutritionData.protein,
         carbs: nutritionData.carbs,
         fat: nutritionData.fat,
-        fiber: nutritionData.fiber || 0,
         date: selectedDate || new Date().toISOString().slice(0, 10),
         user_id: null,
       };
@@ -367,46 +366,9 @@ The JSON object must have this structure:
       updateMainDashboardCacheOptimistic(logData);
       updateHomeScreenCacheOptimistic(logData);
       
-      // ✅ COMPASSIONATE FEEDBACK IMPLEMENTATION
-      const feedbackEngine = new CompassionateFeedbackEngine();
-      
-      // Prepare food data for feedback
-      const foodData = {
-        name: nutritionData.items.map((i) => i.name).join(", "),
-        calories: nutritionData.calories,
-        protein: nutritionData.protein || 0,
-        carbs: nutritionData.carbs || 0,
-        fat: nutritionData.fat || 0,
-        fiber: nutritionData.fiber || 0,
-        micronutrients: nutritionData.items.reduce((acc, item) => {
-          if (item.micronutrients) {
-            return { ...acc, ...item.micronutrients };
-          }
-          return acc;
-        }, {}),
-        category: 'meal'
-      };
-      
-      // Add meal context for better feedback
-      const mealContext = {
-        mealType: mealType,
-        timeOfDay: new Date().getHours(),
-        isVoiceLogged: true // Special context for voice logging
-      };
-      
-      const feedback = feedbackEngine.generateFoodFeedback(foodData, mealContext);
-      
-      // Show compassionate feedback instead of generic success
-      Alert.alert(
-        "Food Logged! 🍽️",
-        feedback.message,
-        [{ 
-          text: "Great!", 
-          style: "default", 
-          onPress: () => navigation.navigate("Home") 
-        }]
-      );
-      
+      Alert.alert("Success", "Food logged successfully!", [
+        { text: "OK", onPress: () => navigation.navigate("Home") },
+      ]);
     } catch (error) {
       Alert.alert("Error", "Failed to log food. " + error.message);
     }
@@ -439,6 +401,7 @@ The JSON object must have this structure:
                 }
               }
               setIsRecording(false);
+              // No recording animation
               navigation.navigate("Home");
             },
           },
@@ -452,6 +415,24 @@ The JSON object must have this structure:
   // UI rendering logic
   return (
     <SafeAreaView style={styles.container} edges={["top"]}>
+      {/* Full-screen loading overlay when processing Convert */}
+      <Modal
+        visible={isConverting}
+        transparent={true}
+        animationType="fade"
+        statusBarTranslucent={true}
+      >
+        <View style={styles.loadingOverlay}>
+          <View style={styles.loadingContainer}>
+            <ActivityIndicator size={40} color="#7B61FF" />
+            <Text style={styles.loadingTitle}>Processing...</Text>
+            <Text style={styles.loadingSubtext}>
+              Analyzing your meal
+            </Text>
+          </View>
+        </View>
+      </Modal>
+
       <View style={styles.header}>
         <TouchableOpacity onPress={handleBackPress} style={styles.backButton}>
           <Ionicons name="chevron-back" size={24} color="#333" />
@@ -520,20 +501,35 @@ The JSON object must have this structure:
           </View>
         </View>
 
-        {/* Dummy real-time transcription box (non-functional) */}
+        {/* Transcription box - always visible, shows status and transcription */}
         <View style={styles.transcriptionCard}>
-          <Text style={styles.transcriptionLabel}>Real-time transcription...</Text>
+          <Text style={styles.transcriptionLabel}>
+            {transcribedText ? "What you said:" : isRecording ? "Recording..." : "Transcription"}
+          </Text>
           <View style={styles.transcriptionBubble}>
-            <Text style={styles.transcriptionText}>
-              "I had a large bowl of oatmeal with a handful of blueberries, a tablespoon of chia seeds, and a drizzle of honey, plus a black coffee."
-            </Text>
+            {/* Only show loading in transcription box if we don't have transcribedText yet (i.e., during transcription after Stop) */}
+            {isLoading && !transcribedText ? (
+              <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'center', padding: 10 }}>
+                <ActivityIndicator size="small" color="#7B61FF" />
+                <Text style={[styles.transcriptionText, { marginLeft: 10 }]}>
+                  Processing...
+                </Text>
+              </View>
+            ) : (
+              <Text style={styles.transcriptionText}>
+                {transcribedText 
+                  ? transcribedText 
+                  : isRecording 
+                  ? "Speaking..." 
+                  : "Tap Start to begin recording"}
+              </Text>
+            )}
           </View>
         </View>
 
         {/* Results - stays in center when showing */}
         {nutritionData && !isLoading && (
           <View style={styles.resultContainer}>
-            <Text style={styles.transcribedText}>{transcribedText}</Text>
             <View style={styles.foodListContainer}>
               {nutritionData.items.map((item, idx) => (
                 <View key={idx} style={styles.foodItemRow}>
@@ -607,20 +603,9 @@ The JSON object must have this structure:
           </View>
         )}
 
-        {/* Loading spinner - stays in center */}
-        {isLoading && (
-          <View style={styles.centerContainer}>
-            <ActivityIndicator
-              size={50}
-              color="#7B61FF"
-              style={{ marginVertical: 16 }}
-            />
-          </View>
-        )}
-
         {/* Instructions section at top */}
         <View style={styles.instructionsSection}>
-          {!isRecording && !nutritionData && !isLoading && (
+          {!isRecording && !nutritionData && (
             <>
               <Text style={styles.instructions}>
                 Speak naturally – Kalry listens & structures it
@@ -630,7 +615,7 @@ The JSON object must have this structure:
               </Text>
             </>
           )}
-          {isRecording && !nutritionData && !isLoading && (
+          {isRecording && !nutritionData && (
             <>
               <Text style={styles.listeningText}>Listening...</Text>
               <Text style={styles.instructions}>
@@ -739,6 +724,55 @@ const styles = StyleSheet.create({
     paddingBottom: 20,
     marginTop: 14,
   },
+  bottomSection: {
+    width: "100%",
+    alignItems: "center",
+    paddingBottom: 0,
+    paddingTop: 0,
+  },
+  animationContainer: {
+    width: "100%",
+    alignItems: "center",
+    justifyContent: "center",
+    paddingVertical: 20,
+  },
+  dotContainer: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    height: 60,
+  },
+  dot: {
+    width: 12,
+    height: 12,
+    borderRadius: 6,
+    backgroundColor: "#7B61FF",
+    marginHorizontal: 6,
+  },
+  waveformContainer: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    height: 60,
+    gap: 3,
+  },
+  waveformBar: {
+    width: 4,
+    borderRadius: 2,
+    backgroundColor: "#7B61FF",
+  },
+  gradientMicWrap: {
+    marginVertical: 24,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  gradientMic: {
+    width: 80,
+    height: 80,
+    borderRadius: 40,
+    alignItems: "center",
+    justifyContent: "center",
+  },
   actionRow: { flexDirection: "row", width: "100%", justifyContent: "space-between", marginTop: 18 },
   actionRowFixed: { position: "absolute", left: 24, right: 24, bottom: 110 },
   startBtn: { flexDirection: "row", alignItems: "center", justifyContent: "center", backgroundColor: "#EFEBFF", paddingVertical: 14, borderRadius: 24, paddingHorizontal: 22, width: "48%" },
@@ -836,7 +870,7 @@ const styles = StyleSheet.create({
   },
   confirmBtn: {
     flex: 1,
-    backgroundColor: "#7B61FF",
+    backgroundColor: "linear-gradient(90deg, #7B61FF 0%, #43E0FF 100%)",
     borderRadius: 8,
     padding: 14,
     alignItems: "center",
@@ -853,6 +887,40 @@ const styles = StyleSheet.create({
     borderColor: "#eee",
   },
   cancelBtnText: { color: "#7B61FF", fontWeight: "bold", fontSize: 16 },
+  loadingOverlay: {
+    flex: 1,
+    backgroundColor: "rgba(0, 0, 0, 0.7)",
+    justifyContent: "center",
+    alignItems: "center",
+  },
+  loadingContainer: {
+    backgroundColor: "#fff",
+    borderRadius: 16,
+    padding: 24,
+    alignItems: "center",
+    justifyContent: "center",
+    minWidth: 200,
+    maxWidth: 250,
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.2,
+    shadowRadius: 12,
+    elevation: 12,
+  },
+  loadingTitle: {
+    fontSize: 16,
+    fontWeight: "bold",
+    color: "#333",
+    marginTop: 16,
+    textAlign: "center",
+  },
+  loadingSubtext: {
+    fontSize: 12,
+    color: "#666",
+    marginTop: 6,
+    textAlign: "center",
+    paddingHorizontal: 10,
+  },
 });
 
 export default VoiceCalorieScreen;

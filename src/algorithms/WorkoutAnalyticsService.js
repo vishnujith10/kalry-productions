@@ -343,20 +343,76 @@ class WorkoutAnalyticsService {
       }
     }
 
-    // Check recovery status
+    // Check recovery status - only show warnings relevant to THIS workout
     const recoveryAdvice = this.recoveryEngine.getRestAdvice();
-    const criticalWarnings = recoveryAdvice.advice.filter(a => 
-      a.severity === 'critical' || a.severity === 'high'
+    
+    // Get muscle groups from current workout (normalize to lowercase for comparison)
+    const currentWorkoutMuscleGroups = (muscleGroups || []).map(mg => mg.toLowerCase());
+    
+    // Debug logging (removed to reduce log spam - uncomment if needed for debugging)
+    // console.log('📊 Post-workout summary - Muscle groups:', {
+    //   currentWorkoutMuscleGroups,
+    //   allWarnings: recoveryAdvice.advice.filter(a => 
+    //     a.severity === 'critical' || a.severity === 'high' || a.severity === 'medium'
+    //   ).map(w => ({ type: w.type, message: w.message }))
+    // });
+    
+    // Filter advice to only get warnings (severity: critical, high, medium)
+    const allWarnings = recoveryAdvice.advice.filter(a => 
+      a.severity === 'critical' || a.severity === 'high' || a.severity === 'medium'
     );
     
-    if (criticalWarnings.length > 0) {
-      summary.warnings.push(...criticalWarnings);
+    // Only show warnings if user has enough workout history (at least 3 total sessions)
+    // This prevents false warnings for new users
+    const totalSessions = recoveryAdvice.metrics?.totalSessions || 0;
+    const hasEnoughHistory = totalSessions >= 3;
+    
+    // Filter warnings to only those relevant to current workout muscle groups
+    // OR global warnings (like rest days, no_rest, etc.)
+    const relevantWarnings = allWarnings.filter(warning => {
+      // If not enough history, only show critical warnings
+      if (!hasEnoughHistory && warning.severity !== 'critical') {
+        return false;
+      }
+      
+      // Include global warnings (rest days, etc.) - these are always relevant
+      if (warning.type === 'no_rest' || warning.type === 'insufficient_rest') {
+        // Only show if user has at least 2 workouts this week
+        return totalSessions >= 2;
+      }
+      
+      // Include high volume/intensity warnings only if they have enough workouts
+      if (warning.type === 'high_volume' || warning.type === 'high_intensity') {
+        return totalSessions >= 5;
+      }
+      
+      // For muscle group-specific warnings, only include if it matches current workout
+      if (warning.type === 'overtraining') {
+        // Extract muscle group from warning message
+        // Format: "⚠️ Too many {group} workouts" or "⚠️ High frequency: {frequency} {group} workouts"
+        const message = warning.message || '';
+        const match = message.match(/(?:Too many|High frequency.*?)(\w+) workouts/i);
+        if (match) {
+          const warnedGroup = match[1].toLowerCase();
+          // Check if this muscle group is in the current workout
+          return currentWorkoutMuscleGroups.some(mg => 
+            mg.includes(warnedGroup) || warnedGroup.includes(mg) || mg === warnedGroup
+          );
+        }
+      }
+      
+      return false;
+    });
+    
+    if (relevantWarnings.length > 0) {
+      summary.warnings.push(...relevantWarnings);
     }
 
     // Get progression suggestions for exercises
     for (const exercise of exercises || []) {
       const progression = this.overloadEngine.suggestIncrease(exercise.name);
-      if (progression.type === 'stagnation') {
+      // Show suggestions for stagnation (6+ sessions) or 4-5 session maintenance reminders
+      if (progression.type === 'stagnation' || progression.type === 'consistency') {
         summary.suggestions.push({
           exercise: exercise.name,
           ...progression

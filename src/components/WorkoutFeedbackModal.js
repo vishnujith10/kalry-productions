@@ -9,17 +9,17 @@
  * - Motivational messages
  */
 
+import { Ionicons } from '@expo/vector-icons';
 import React from 'react';
 import {
-  View,
-  Text,
+  Dimensions,
   Modal,
   ScrollView,
-  TouchableOpacity,
   StyleSheet,
-  Dimensions,
+  Text,
+  TouchableOpacity,
+  View,
 } from 'react-native';
-import { Ionicons } from '@expo/vector-icons';
 
 const { width } = Dimensions.get('window');
 
@@ -36,13 +36,62 @@ const COLORS = {
 };
 
 export default function WorkoutFeedbackModal({ visible, onClose, feedback }) {
-  if (!feedback) return null;
+  // Debug logging only when modal becomes visible to avoid spam
+  const prevVisibleRef = React.useRef(false);
+  React.useEffect(() => {
+    // Only log when modal transitions from hidden to visible
+    if (visible && !prevVisibleRef.current && feedback) {
+      console.log('📊 WorkoutFeedbackModal opened:', {
+        achievementsCount: feedback?.achievements?.length || 0,
+        warningsCount: feedback?.warnings?.length || 0,
+        suggestionsCount: feedback?.suggestions?.length || 0,
+      });
+    }
+    prevVisibleRef.current = visible;
+  }, [visible, feedback]);
+
+  // If no feedback, show a default message
+  if (!feedback) {
+    return (
+      <Modal
+        visible={visible}
+        animationType="slide"
+        transparent={true}
+        onRequestClose={onClose}
+      >
+        <View style={styles.modalOverlay}>
+          <View style={styles.modalContainer}>
+            <View style={styles.header}>
+              <Text style={styles.headerTitle}>Workout Summary</Text>
+              <TouchableOpacity onPress={onClose} style={styles.closeButton}>
+                <Ionicons name="close" size={28} color={COLORS.gray} />
+              </TouchableOpacity>
+            </View>
+            <ScrollView style={styles.content} showsVerticalScrollIndicator={false}>
+              <View style={styles.emptyState}>
+                <Text style={styles.emptyStateEmoji}>💪</Text>
+                <Text style={styles.emptyStateTitle}>Great Workout!</Text>
+                <Text style={styles.emptyStateDescription}>
+                  Keep logging your workouts to unlock personalized insights and track your progress.
+                </Text>
+              </View>
+            </ScrollView>
+            <View style={styles.footer}>
+              <TouchableOpacity style={styles.continueButton} onPress={onClose}>
+                <Text style={styles.continueButtonText}>Continue</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        </View>
+      </Modal>
+    );
+  }
 
   const { achievements = [], warnings = [], suggestions = [], workout = {} } = feedback;
 
-  const hasAchievements = achievements.length > 0;
-  const hasWarnings = warnings.length > 0;
-  const hasSuggestions = suggestions.length > 0;
+  const hasAchievements = achievements && achievements.length > 0;
+  const hasWarnings = warnings && warnings.length > 0;
+  const hasSuggestions = suggestions && suggestions.length > 0;
 
   return (
     <Modal
@@ -61,7 +110,15 @@ export default function WorkoutFeedbackModal({ visible, onClose, feedback }) {
             </TouchableOpacity>
           </View>
 
-          <ScrollView style={styles.content} showsVerticalScrollIndicator={false}>
+          <ScrollView 
+            style={styles.content} 
+            contentContainerStyle={
+              (!hasAchievements && !hasWarnings && !hasSuggestions)
+                ? [styles.contentContainer, styles.emptyContentContainer]
+                : styles.contentContainer
+            }
+            showsVerticalScrollIndicator={false}
+          >
             {/* Achievements Section */}
             {hasAchievements && (
               <View style={styles.section}>
@@ -135,8 +192,8 @@ export default function WorkoutFeedbackModal({ visible, onClose, feedback }) {
               </View>
             )}
 
-            {/* No Feedback Message */}
-            {!hasAchievements && !hasWarnings && !hasSuggestions && (
+            {/* No Feedback Message - Always show if no content */}
+            {(!hasAchievements && !hasWarnings && !hasSuggestions) ? (
               <View style={styles.emptyState}>
                 <Text style={styles.emptyStateEmoji}>💪</Text>
                 <Text style={styles.emptyStateTitle}>Great Workout!</Text>
@@ -144,7 +201,7 @@ export default function WorkoutFeedbackModal({ visible, onClose, feedback }) {
                   Keep logging your workouts to unlock personalized insights and track your progress.
                 </Text>
               </View>
-            )}
+            ) : null}
           </ScrollView>
 
           {/* Footer */}
@@ -169,7 +226,8 @@ const styles = StyleSheet.create({
     backgroundColor: COLORS.white,
     borderTopLeftRadius: 24,
     borderTopRightRadius: 24,
-    maxHeight: '85%',
+    maxHeight: '90%',
+    minHeight: '60%', // Ensure larger minimum height
     paddingBottom: 20,
   },
   header: {
@@ -190,8 +248,21 @@ const styles = StyleSheet.create({
     padding: 4,
   },
   content: {
-    flex: 1,
     paddingHorizontal: 20,
+    paddingTop: 20, // Add top padding
+    flex: 1,
+    maxHeight: '70%', // Ensure content takes up more space
+  },
+  contentContainer: {
+    paddingBottom: 40, // More bottom padding for scrolling
+    minHeight: 400, // Larger minimum height for content visibility
+    flexGrow: 1,
+  },
+  emptyContentContainer: {
+    justifyContent: 'center',
+    alignItems: 'center',
+    minHeight: 400, // Match contentContainer minHeight
+    paddingTop: 60, // Add top padding for empty state
   },
   section: {
     marginTop: 24,
@@ -301,7 +372,10 @@ const styles = StyleSheet.create({
   },
   emptyState: {
     alignItems: 'center',
+    justifyContent: 'center',
     paddingVertical: 48,
+    paddingHorizontal: 20,
+    width: '100%',
   },
   emptyStateEmoji: {
     fontSize: 64,

@@ -115,13 +115,36 @@ export class RestRecoveryEngine {
     for (const group in groups) {
       const frequency = groups[group];
       
-      if (frequency > 5) {
+      // Professional standards:
+      // - Optimal: 2-3x per week for most people
+      // - Advanced: 3-5x per week can be effective
+      // - High risk: 6+ per week (approaching daily, likely overtraining)
+      // - 7+ per week is excessive and dangerous
+      if (frequency >= 7) {
         warnings.push({
           type: 'overtraining',
           severity: 'high',
-          message: `⚠️ Too many ${group} workouts (${frequency}/week)`,
-          suggestion: `Consider a rest or active recovery day for ${group}. Overtraining can lead to injury and decreased performance.`,
+          message: `⚠️ Excessive frequency: ${frequency} ${group} workouts this week`,
+          suggestion: `Training ${group} daily is likely causing overtraining. Rest is crucial for muscle growth. Reduce to 2-4x per week.`,
           emoji: '🚨'
+        });
+      } else if (frequency === 6) {
+        // Warning for 6 workouts (very high frequency)
+        warnings.push({
+          type: 'overtraining',
+          severity: 'medium',
+          message: `⚠️ High frequency: ${frequency} ${group} workouts this week`,
+          suggestion: `You're training ${group} almost daily. Most people see best results with 2-4x per week. Consider adding rest days.`,
+          emoji: '⚠️'
+        });
+      } else if (frequency === 5) {
+        // 5x per week is high but acceptable for advanced lifters
+        advice.push({
+          type: 'high_frequency',
+          severity: 'low',
+          message: `High frequency: ${frequency} ${group} workouts this week`,
+          suggestion: 'This is high frequency. Ensure adequate rest and recovery. Most people optimize at 2-4x per week.',
+          emoji: '💡'
         });
       } else if (frequency === 1) {
         advice.push({
@@ -143,6 +166,7 @@ export class RestRecoveryEngine {
     }
 
     // Check rest days
+    // Professional standards: 1-2 rest days minimum, 2-3 optimal
     const last7Days = Array.from({ length: 7 }, (_, i) => {
       const d = new Date(currentDate);
       d.setDate(d.getDate() - i);
@@ -151,39 +175,61 @@ export class RestRecoveryEngine {
     
     const restDays = last7Days.filter(d => !workoutDates.has(d)).length;
 
+    // Critical: No rest days at all (overtraining risk)
     if (restDays < 1) {
       warnings.push({
         type: 'no_rest',
         severity: 'critical',
         message: '🚨 You had 0 rest days this week!',
-        suggestion: 'Rest is crucial for muscle recovery and growth. Schedule at least 1-2 complete rest days per week.',
+        suggestion: 'Rest is crucial for muscle recovery and growth. Schedule at least 1-2 complete rest days per week. Without rest, you risk injury and decreased performance.',
         emoji: '⛔'
       });
-    } else if (restDays < 2) {
+    } else if (restDays === 1) {
+      // Warning: Only 1 rest day (minimum but not optimal)
       warnings.push({
         type: 'insufficient_rest',
         severity: 'medium',
         message: `⚠️ Only ${restDays} rest day this week`,
-        suggestion: 'Aim for 1-2 rest days per week to optimize recovery and prevent burnout.',
+        suggestion: 'While 1 rest day is the minimum, 2-3 rest days per week is optimal for most people. Consider adding another rest day to optimize recovery.',
         emoji: '😴'
       });
     } else if (restDays >= 2 && restDays <= 3) {
+      // Optimal: 2-3 rest days (gold standard for most people)
       advice.push({
         type: 'good_rest',
         severity: 'none',
         message: `Perfect! ${restDays} rest days this week`,
-        suggestion: 'Great balance between training and recovery.',
+        suggestion: 'This is the optimal rest-to-training ratio for most people. Great balance between training and recovery.',
         emoji: '💯'
+      });
+    } else if (restDays >= 4) {
+      // High rest: 4+ rest days (might be undertraining, but could be intentional deload)
+      advice.push({
+        type: 'high_rest',
+        severity: 'low',
+        message: `${restDays} rest days this week`,
+        suggestion: 'You have plenty of rest. If this is intentional (deload week, recovery), great! Otherwise, consider adding training days for optimal results.',
+        emoji: '🔄'
       });
     }
 
     // Check total weekly volume
-    if (totalSessions > 6) {
+    // Only warn if high volume AND insufficient rest days
+    // Multiple sessions per day is normal for split workouts, morning/evening routines
+    const workoutDays = workoutDates.size;
+    const restDaysCount = restDays;
+    
+    // Warn only if:
+    // - More than 10 sessions AND less than 3 rest days (actually overtraining)
+    // - OR more than 15 sessions (extremely high volume regardless of rest)
+    if ((totalSessions > 10 && restDaysCount < 3) || totalSessions > 15) {
       warnings.push({
         type: 'high_volume',
-        severity: 'medium',
-        message: `High training volume: ${totalSessions} sessions this week`,
-        suggestion: 'Monitor your recovery. Consider deload week if feeling fatigued.',
+        severity: totalSessions > 15 ? 'high' : 'medium',
+        message: `High training volume: ${totalSessions} sessions across ${workoutDays} days this week`,
+        suggestion: restDaysCount < 3 
+          ? 'You have very high volume with limited rest. Consider adding more rest days or reducing frequency.'
+          : 'Monitor your recovery. Consider deload week if feeling fatigued.',
         emoji: '📊'
       });
     }

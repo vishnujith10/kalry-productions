@@ -1,20 +1,20 @@
 import { Ionicons, MaterialCommunityIcons } from '@expo/vector-icons';
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import {
-  Alert,
-  Animated,
-  Dimensions,
-  Image,
-  Keyboard,
-  Modal,
-  ScrollView,
-  StatusBar,
-  StyleSheet,
-  Text,
-  TextInput,
-  TouchableOpacity,
-  TouchableWithoutFeedback,
-  View
+    Alert,
+    Animated,
+    Dimensions,
+    Image,
+    Keyboard,
+    Modal,
+    ScrollView,
+    StatusBar,
+    StyleSheet,
+    Text,
+    TextInput,
+    TouchableOpacity,
+    TouchableWithoutFeedback,
+    View
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { workoutAnalyticsService } from '../algorithms/WorkoutAnalyticsService';
@@ -141,6 +141,9 @@ export default function StartWorkoutScreen({ navigation, route }) {
   const [showFeedbackModal, setShowFeedbackModal] = useState(false); // Workout feedback modal
   const [workoutFeedback, setWorkoutFeedback] = useState(null); // Feedback data
   const [timeInputValues, setTimeInputValues] = useState({}); // Track raw time input values
+  const timeInputRefs = useRef({}); // Refs for time inputs to manage cursor position
+  const timeInputSelections = useRef({}); // Track cursor selection for time inputs
+  const [timeInputSelectionsState, setTimeInputSelectionsState] = useState({}); // State for cursor positions
   
   const timerStartedRef = useRef(false);
   const workoutTimeRef = useRef(0);
@@ -613,8 +616,24 @@ export default function StartWorkoutScreen({ navigation, route }) {
           muscleGroups
         });
         
-        setWorkoutFeedback(feedback);
-        setShowFeedbackModal(true);
+        // Debug logging (commented out to reduce log spam - uncomment if needed for debugging)
+        // console.log('📊 Workout feedback:', {
+        //   achievements: feedback?.achievements?.length || 0,
+        //   warnings: feedback?.warnings?.length || 0,
+        //   suggestions: feedback?.suggestions?.length || 0,
+        //   hasContent: (feedback?.achievements?.length || 0) + (feedback?.warnings?.length || 0) + (feedback?.suggestions?.length || 0) > 0
+        // });
+        
+        setWorkoutFeedback(feedback || {
+          achievements: [],
+          warnings: [],
+          suggestions: [],
+          workout: {
+            exercises: preparedExercises.length,
+            duration: workoutTime / 60,
+            intensity: 'moderate'
+          }
+        });
         
         console.log('✅ Workout analytics generated');
       } catch (error) {
@@ -622,13 +641,17 @@ export default function StartWorkoutScreen({ navigation, route }) {
         // Don't block the user if analytics fail
       }
       
+      // Show alert first, then show summary modal after alert is dismissed
       Alert.alert(
         'Workout Completed!',
         `Great job! Your workout has been saved.\nDuration: ${formatTime(workoutTime)}\nCalories: ${getTotalStats.totalKcal} kcal`,
         [
           { 
             text: 'Ok', 
-            onPress: () => navigation.navigate('Workouts')
+            onPress: () => {
+              // Show summary modal after alert is dismissed
+              setShowFeedbackModal(true);
+            }
           },
         ]
       );
@@ -880,31 +903,76 @@ export default function StartWorkoutScreen({ navigation, route }) {
                           <Text style={styles.setUnit}>KM</Text>
                           <Text style={styles.setSeparator}>•</Text>
                           <TextInput
+                            ref={(ref) => {
+                              const inputKey = `${exercise.id}-${set.id}`;
+                              if (ref) timeInputRefs.current[inputKey] = ref;
+                            }}
                             style={styles.setInput}
                             value={timeInputValues[`${exercise.id}-${set.id}`] !== undefined 
                               ? (() => {
-                                  // Show formatted value with colon while typing
+                                  // Show raw digits WITHOUT colon while typing
                                   const digitsOnly = timeInputValues[`${exercise.id}-${set.id}`];
-                                  if (!digitsOnly) return '';
-                                  return formatTimeInput(digitsOnly);
+                                  return digitsOnly || '';
                                 })()
-                              : displayTime}
+                              : displayTime.replace(':', '')}
+                            selection={timeInputSelectionsState[`${exercise.id}-${set.id}`]}
                             onChangeText={(text) => {
                               const inputKey = `${exercise.id}-${set.id}`;
-                              // Remove all non-digits (including colon)
-                              const digitsOnly = text.replace(/\D/g, '');
+                              // Remove all non-digits
+                              const digitsOnly = text.replace(/\D/g, '').slice(0, 4); // Max 4 digits (MMSS)
                               
-                              // Store raw input (digits only)
+                              // Store raw input (digits only) - show raw digits while typing
                               setTimeInputValues(prev => ({
                                 ...prev,
                                 [inputKey]: digitsOnly
                               }));
                               
                               // Format and update the actual value (this is what gets saved)
-                              const formatted = formatTimeInput(digitsOnly);
-                              updateSet(exercise.id, set.id, 'time', formatted);
+                              if (digitsOnly.length >= 2) {
+                                const formatted = formatTimeInput(digitsOnly);
+                                updateSet(exercise.id, set.id, 'time', formatted);
+                                
+                                // Set cursor position to end of raw digits
+                                const cursorPos = digitsOnly.length;
+                                setTimeInputSelectionsState(prev => ({
+                                  ...prev,
+                                  [inputKey]: { start: cursorPos, end: cursorPos }
+                                }));
+                              } else if (digitsOnly.length === 0) {
+                                updateSet(exercise.id, set.id, 'time', '');
+                                setTimeInputSelectionsState(prev => {
+                                  const newValues = { ...prev };
+                                  delete newValues[inputKey];
+                                  return newValues;
+                                });
+                              } else {
+                                // For single digit, set cursor after it
+                                setTimeInputSelectionsState(prev => ({
+                                  ...prev,
+                                  [inputKey]: { start: digitsOnly.length, end: digitsOnly.length }
+                                }));
+                              }
                             }}
-                            placeholder="0:00"
+                            onSelectionChange={(e) => {
+                              // Extract selection immediately before event is released
+                              const selection = e.nativeEvent?.selection;
+                              if (!selection) return;
+                              
+                              const inputKey = `${exercise.id}-${set.id}`;
+                              // Only update selection state if user manually changed it
+                              if (timeInputValues[inputKey] !== undefined) {
+                                const digitsOnly = timeInputValues[inputKey];
+                                const cursorPos = selection.start;
+                                // Only update if cursor is at a reasonable position
+                                if (cursorPos <= digitsOnly.length) {
+                                  setTimeInputSelectionsState(prev => ({
+                                    ...prev,
+                                    [inputKey]: { start: selection.start, end: selection.end }
+                                  }));
+                                }
+                              }
+                            }}
+                            placeholder="0000"
                             keyboardType="number-pad"
                             onFocus={() => {
                               const inputKey = `${exercise.id}-${set.id}`;
@@ -914,6 +982,10 @@ export default function StartWorkoutScreen({ navigation, route }) {
                                   [inputKey]: ''
                                 }));
                                 updateSet(exercise.id, set.id, 'time', '');
+                                setTimeInputSelectionsState(prev => ({
+                                  ...prev,
+                                  [inputKey]: { start: 0, end: 0 }
+                                }));
                               } else {
                                 // Extract digits from current time
                                 const digits = set.time.replace(/\D/g, '');
@@ -921,27 +993,43 @@ export default function StartWorkoutScreen({ navigation, route }) {
                                   ...prev,
                                   [inputKey]: digits
                                 }));
+                                // Set cursor to end of raw digits
+                                setTimeInputSelectionsState(prev => ({
+                                  ...prev,
+                                  [inputKey]: { start: digits.length, end: digits.length }
+                                }));
                               }
                             }}
                             onBlur={() => {
                               const inputKey = `${exercise.id}-${set.id}`;
-                              // Ensure we have a valid formatted time saved
-                              if (!set.time || set.time === '' || set.time === '0:00') {
+                              const digits = timeInputValues[inputKey] || set.time.replace(/\D/g, '');
+                              
+                              // Format and save the final value
+                              if (!digits || digits === '') {
                                 updateSet(exercise.id, set.id, 'time', '00:00');
                               } else {
-                                // Make sure saved value is properly formatted
-                                const digits = set.time.replace(/\D/g, '');
                                 const formatted = formatTimeInput(digits);
                                 updateSet(exercise.id, set.id, 'time', formatted);
                               }
-                              // Clear raw input on blur
+                              
+                              // Clear raw input on blur (will show raw digits without colon)
                               setTimeInputValues(prev => {
                                 const newValues = { ...prev };
                                 delete newValues[inputKey];
                                 return newValues;
                               });
+                              
+                              // Clear selection state
+                              setTimeInputSelectionsState(prev => {
+                                const newValues = { ...prev };
+                                delete newValues[inputKey];
+                                return newValues;
+                              });
+                              
+                              // Clear selection tracking
+                              delete timeInputSelections.current[inputKey];
                             }}
-                            maxLength={5}
+                            maxLength={4}
                           />
                           <Text style={styles.setUnit}>mm:ss</Text>
                         </>
@@ -965,31 +1053,76 @@ export default function StartWorkoutScreen({ navigation, route }) {
                             />
                           </TouchableOpacity>
                           <TextInput
+                            ref={(ref) => {
+                              const inputKey = `${exercise.id}-${set.id}`;
+                              if (ref) timeInputRefs.current[inputKey] = ref;
+                            }}
                             style={styles.setInput}
                             value={timeInputValues[`${exercise.id}-${set.id}`] !== undefined 
                               ? (() => {
-                                  // Show formatted value with colon while typing
+                                  // Show raw digits WITHOUT colon while typing
                                   const digitsOnly = timeInputValues[`${exercise.id}-${set.id}`];
-                                  if (!digitsOnly) return '';
-                                  return formatTimeInput(digitsOnly);
+                                  return digitsOnly || '';
                                 })()
-                              : displayTime}
+                              : displayTime.replace(':', '')}
+                            selection={timeInputSelectionsState[`${exercise.id}-${set.id}`]}
                             onChangeText={(text) => {
                               const inputKey = `${exercise.id}-${set.id}`;
-                              // Remove all non-digits (including colon)
-                              const digitsOnly = text.replace(/\D/g, '');
+                              // Remove all non-digits
+                              const digitsOnly = text.replace(/\D/g, '').slice(0, 4); // Max 4 digits (MMSS)
                               
-                              // Store raw input (digits only)
+                              // Store raw input (digits only) - show raw digits while typing
                               setTimeInputValues(prev => ({
                                 ...prev,
                                 [inputKey]: digitsOnly
                               }));
                               
                               // Format and update the actual value (this is what gets saved)
-                              const formatted = formatTimeInput(digitsOnly);
-                              updateSet(exercise.id, set.id, 'time', formatted);
+                              if (digitsOnly.length >= 2) {
+                                const formatted = formatTimeInput(digitsOnly);
+                                updateSet(exercise.id, set.id, 'time', formatted);
+                                
+                                // Set cursor position to end of raw digits
+                                const cursorPos = digitsOnly.length;
+                                setTimeInputSelectionsState(prev => ({
+                                  ...prev,
+                                  [inputKey]: { start: cursorPos, end: cursorPos }
+                                }));
+                              } else if (digitsOnly.length === 0) {
+                                updateSet(exercise.id, set.id, 'time', '');
+                                setTimeInputSelectionsState(prev => {
+                                  const newValues = { ...prev };
+                                  delete newValues[inputKey];
+                                  return newValues;
+                                });
+                              } else {
+                                // For single digit, set cursor after it
+                                setTimeInputSelectionsState(prev => ({
+                                  ...prev,
+                                  [inputKey]: { start: digitsOnly.length, end: digitsOnly.length }
+                                }));
+                              }
                             }}
-                            placeholder="0:00"
+                            onSelectionChange={(e) => {
+                              // Extract selection immediately before event is released
+                              const selection = e.nativeEvent?.selection;
+                              if (!selection) return;
+                              
+                              const inputKey = `${exercise.id}-${set.id}`;
+                              // Only update selection state if user manually changed it
+                              if (timeInputValues[inputKey] !== undefined) {
+                                const digitsOnly = timeInputValues[inputKey];
+                                const cursorPos = selection.start;
+                                // Only update if cursor is at a reasonable position
+                                if (cursorPos <= digitsOnly.length) {
+                                  setTimeInputSelectionsState(prev => ({
+                                    ...prev,
+                                    [inputKey]: { start: selection.start, end: selection.end }
+                                  }));
+                                }
+                              }
+                            }}
+                            placeholder="0000"
                             keyboardType="number-pad"
                             onFocus={() => {
                               const inputKey = `${exercise.id}-${set.id}`;
@@ -999,6 +1132,10 @@ export default function StartWorkoutScreen({ navigation, route }) {
                                   [inputKey]: ''
                                 }));
                                 updateSet(exercise.id, set.id, 'time', '');
+                                setTimeInputSelectionsState(prev => ({
+                                  ...prev,
+                                  [inputKey]: { start: 0, end: 0 }
+                                }));
                               } else {
                                 // Extract digits from current time
                                 const digits = set.time.replace(/\D/g, '');
@@ -1006,27 +1143,43 @@ export default function StartWorkoutScreen({ navigation, route }) {
                                   ...prev,
                                   [inputKey]: digits
                                 }));
+                                // Set cursor to end of raw digits
+                                setTimeInputSelectionsState(prev => ({
+                                  ...prev,
+                                  [inputKey]: { start: digits.length, end: digits.length }
+                                }));
                               }
                             }}
                             onBlur={() => {
                               const inputKey = `${exercise.id}-${set.id}`;
-                              // Ensure we have a valid formatted time saved
-                              if (!set.time || set.time === '' || set.time === '0:00') {
+                              const digits = timeInputValues[inputKey] || set.time.replace(/\D/g, '');
+                              
+                              // Format and save the final value
+                              if (!digits || digits === '') {
                                 updateSet(exercise.id, set.id, 'time', '00:00');
                               } else {
-                                // Make sure saved value is properly formatted
-                                const digits = set.time.replace(/\D/g, '');
                                 const formatted = formatTimeInput(digits);
                                 updateSet(exercise.id, set.id, 'time', formatted);
                               }
-                              // Clear raw input on blur
+                              
+                              // Clear raw input on blur (will show raw digits without colon)
                               setTimeInputValues(prev => {
                                 const newValues = { ...prev };
                                 delete newValues[inputKey];
                                 return newValues;
                               });
+                              
+                              // Clear selection state
+                              setTimeInputSelectionsState(prev => {
+                                const newValues = { ...prev };
+                                delete newValues[inputKey];
+                                return newValues;
+                              });
+                              
+                              // Clear selection tracking
+                              delete timeInputSelections.current[inputKey];
                             }}
-                            maxLength={5}
+                            maxLength={4}
                           />
                         </>
                       ) : (
@@ -1194,7 +1347,10 @@ export default function StartWorkoutScreen({ navigation, route }) {
       {/* Workout Feedback Modal */}
       <WorkoutFeedbackModal
         visible={showFeedbackModal}
-        onClose={() => setShowFeedbackModal(false)}
+        onClose={() => {
+          setShowFeedbackModal(false);
+          navigation.navigate('Workouts');
+        }}
         feedback={workoutFeedback}
       />
     </SafeAreaView>
