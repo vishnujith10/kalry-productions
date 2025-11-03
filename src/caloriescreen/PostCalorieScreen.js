@@ -2,10 +2,11 @@ import { Ionicons } from '@expo/vector-icons';
 import { useFocusEffect } from '@react-navigation/native';
 import React, { useCallback, useEffect, useState } from 'react';
 import { Alert, BackHandler, Image, ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
+import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import supabase from '../lib/supabase';
 
 const PostCalorieScreen = ({ route, navigation }) => {
+  const insets = useSafeAreaInsets(); // Get safe area insets for bottom navigation
   const { analysis, mealName } = route.params || {};
   
   // Add safety checks for route params
@@ -482,11 +483,12 @@ const PostCalorieScreen = ({ route, navigation }) => {
   }, [analysis, mealNameState]);
 
   const moodOptions = [
-    { emoji: '😊', label: 'High Protein' },
-    { emoji: '😌', label: 'Balanced Meal' },
-    { emoji: '🤤', label: 'Home Cooking' },
-    { emoji: '😍', label: 'Delicious' },
-    { emoji: '🤗', label: 'Satisfied' },
+    { emoji: '😀', label: 'Happy' },
+    { emoji: '😊', label: 'Content' },
+    { emoji: '😐', label: 'Neutral' },
+    { emoji: '😞', label: 'Sad' },
+    { emoji: '😴', label: 'Tired' },
+    { emoji: '😤', label: 'Stressed' },
   ];
 
   // Block back navigation
@@ -684,245 +686,135 @@ const PostCalorieScreen = ({ route, navigation }) => {
   };
 
   return (
-    <SafeAreaView style={styles.container} edges={['top','bottom']}>
-      <ScrollView style={styles.scrollView} showsVerticalScrollIndicator={false}>
+    <SafeAreaView style={styles.container} edges={['top']}>
         {/* Header */}
         <View style={styles.header}>
-          <TouchableOpacity onPress={() => navigation.goBack()}>
+        <TouchableOpacity onPress={() => navigation.goBack()} style={styles.backButton}>
             <Ionicons name="chevron-back" size={24} color="#333" />
           </TouchableOpacity>
+        <Text style={styles.headerTitle}>Food Analysis</Text>
+        <View style={{ width: 28 }} />
         </View>
 
-        {/* Title and Time */}
-        <View style={styles.titleSection}>
-          <Text style={styles.title}>Meal Reflected</Text>
-          {isEditing ? (
-        <TextInput
-              style={[styles.mealName, styles.editableText]}
-          value={mealNameState}
-              onChangeText={setMealNameState}
-              placeholder="Enter meal name"
-            />
-          ) : (
-            <Text style={styles.mealName}>{mealNameState || analysis?.dish_name || 'Meal'}</Text>
-          )}
-          <View style={styles.timeRow}>
-            <Text style={styles.timeText}>Today, {getCurrentTime()}</Text>
-            <View style={styles.mealTypeTag}>
-              <Text style={styles.mealTypeText}>Lunch</Text>
-            </View>
-          </View>
-        </View>
+      <ScrollView 
+        style={styles.content} 
+        showsVerticalScrollIndicator={false}
+        contentContainerStyle={{ paddingBottom: insets.bottom >= 20 ? (insets.bottom + 20) : 20 }}
+      >
 
-                 {/* Meal Image and Calories */}
-         <View style={styles.mealImageSection}>
-           <View style={styles.mealImageContainer}>
-             {/* Left side - Meal Image */}
-             <View style={styles.mealImage}>
+        {/* Photo */}
+        <View style={styles.photoContainer}>
                <Image
                  source={{ uri: 'https://images.unsplash.com/photo-1546069901-ba9599a7e63c?w=400&h=300&fit=crop' }}
-                 style={styles.mealImageStyle}
+            style={styles.photo}
                  resizeMode="cover"
                />
              </View>
              
-             {/* Right side - Calorie Ring */}
-             <View style={styles.calorieRing}>
-               <View style={styles.calorieRingInner}>
-                 <Text style={styles.calorieNumber}>{analysis?.total?.calories || analysis?.total_nutrition?.calories || 785}</Text>
-                 <Text style={styles.calorieLabel}>kcal</Text>
+        {/* Food Name */}
+        <View style={styles.section}>
+          <View style={styles.sectionHeader}>
+            <Text style={styles.sectionTitle}>Identified Food</Text>
+            <TouchableOpacity onPress={() => setIsEditing(!isEditing)}>
+              <Ionicons name="pencil-outline" size={20} color="#7B61FF" />
+            </TouchableOpacity>
                </View>
-             </View>
-           </View>
-         </View>
-
-         {/* Macros Grid */}
-        {macrosLoaded && (
-          <View style={styles.macrosGrid}>
-            <View style={[styles.macroCard, { backgroundColor: '#FFF2E6' }]}>
-            <Text style={styles.macroLabel}>Carbs</Text>
-              <Ionicons name="restaurant-outline" size={20} color="#333" style={styles.macroIcon} />
               {isEditing ? (
                 <TextInput
-                  style={[styles.macroValue, styles.editableText]}
-                  value={Math.round(macros.carbs).toString()}
-                  onChangeText={(value) => handleMacroChange('carbs', parseFloat(value) || 0)}
-                  keyboardType="numeric"
+              style={[styles.foodName, styles.editableText]}
+              value={mealNameState}
+              onChangeText={setMealNameState}
+              placeholder="Enter food name"
                 />
               ) : (
-                <Text style={styles.macroValue}>{Math.round(macros.carbs)}g</Text>
+            <Text style={styles.foodName}>{mealNameState || analysis?.dish_name || 'Meal'}</Text>
               )}
+          <Text style={styles.confidence}>
+            Confidence: 85%
+          </Text>
             </View>
-            <View style={[styles.macroCard, { backgroundColor: '#E6F3FF' }]}>
-              <Text style={styles.macroLabel}>Protein</Text>
-              <Ionicons name="fitness-outline" size={20} color="#333" style={styles.macroIcon} />
-            {isEditing ? (
-                <TextInput
-                  style={[styles.macroValue, styles.editableText]}
-                  value={Math.round(macros.protein).toString()}
-                  onChangeText={(value) => handleMacroChange('protein', parseFloat(value) || 0)}
-                  keyboardType="numeric"
-                />
-              ) : (
-                <Text style={styles.macroValue}>{Math.round(macros.protein)}g</Text>
-            )}
-          </View>
-            <View style={[styles.macroCard, { backgroundColor: '#F0FFE6' }]}>
-              <Text style={styles.macroLabel}>Fat</Text>
-              <Ionicons name="leaf-outline" size={20} color="#333" style={styles.macroIcon} />
-            {isEditing ? (
-                <TextInput
-                  style={[styles.macroValue, styles.editableText]}
-                  value={Math.round(macros.fat).toString()}
-                  onChangeText={(value) => handleMacroChange('fat', parseFloat(value) || 0)}
-                  keyboardType="numeric"
-                />
-              ) : (
-                <Text style={styles.macroValue}>{Math.round(macros.fat)}g</Text>
-            )}
-          </View>
-            <View style={[styles.macroCard, { backgroundColor: '#F3E6FF' }]}>
-            <Text style={styles.macroLabel}>Fiber</Text>
-              <Ionicons name="nutrition-outline" size={20} color="#333" style={styles.macroIcon} />
-            {isEditing ? (
-                <TextInput
-                  style={[styles.macroValue, styles.editableText]}
-                  value={Math.round(macros.fiber).toString()}
-                  onChangeText={(value) => handleMacroChange('fiber', parseFloat(value) || 0)}
-                  keyboardType="numeric"
-                />
-              ) : (
-                <Text style={styles.macroValue}>{Math.round(macros.fiber)}g</Text>
-            )}
-          </View>
-        </View>
-        )}
-        
-        {!macrosLoaded && (
-          <View style={styles.macrosGrid}>
-            <View style={[styles.macroCard, { backgroundColor: '#F8FAFC' }]}>
-              <Text style={styles.macroLabel}>Loading...</Text>
-            </View>
-          </View>
-        )}
 
-        {/* Health Score */}
-        <View style={styles.healthScoreSection}>
-          <View style={styles.healthScoreCircle}>
-            <Text style={styles.healthScoreNumber}>{healthScore}</Text>
+        {/* Nutrition Summary */}
+        <View style={styles.section}>
+          <Text style={styles.sectionTitle}>Nutrition Summary</Text>
+          <View style={styles.nutritionGrid}>
+            <View style={styles.nutritionItem}>
+              <Text style={styles.nutritionValue}>{analysis?.total?.calories || analysis?.total_nutrition?.calories || 0}</Text>
+              <Text style={styles.nutritionLabel}>Calories</Text>
           </View>
-          <View style={styles.healthScoreInfo}>
-            <Text style={styles.healthScoreTitle}>{healthText}</Text>
-            <Text style={styles.healthScoreDescription}>{infoText}</Text>
+            <View style={styles.nutritionItem}>
+              <Text style={styles.nutritionValue}>{Math.round(macros.protein)}g</Text>
+              <Text style={styles.nutritionLabel}>Protein</Text>
+          </View>
+            <View style={styles.nutritionItem}>
+              <Text style={styles.nutritionValue}>{Math.round(macros.carbs)}g</Text>
+              <Text style={styles.nutritionLabel}>Carbs</Text>
+          </View>
+            <View style={styles.nutritionItem}>
+              <Text style={styles.nutritionValue}>{Math.round(macros.fat)}g</Text>
+              <Text style={styles.nutritionLabel}>Fat</Text>
+        </View>
           </View>
         </View>
 
         {/* Ingredients */}
-        <View style={styles.ingredientsSection}>
-          <View style={styles.ingredientsHeader}>
-            <Text style={styles.ingredientsTitle}>Ingredients</Text>
-            <View style={styles.ingredientsHeaderRight}>
-              <Text style={styles.ingredientsCount}>{ingredients.length} items</Text>
-              {isEditing && (
-                <TouchableOpacity onPress={addIngredient} style={styles.addIngredientButton}>
-                  <Ionicons name="add-circle" size={24} color="#6366F1" />
-                </TouchableOpacity>
-              )}
-            </View>
-          </View>
+        <View style={styles.section}>
+          <Text style={styles.sectionTitle}>Ingredients Detected</Text>
           {ingredients.map((ingredient, index) => (
-            <View key={index} style={styles.ingredientItem}>
-              <Text style={styles.ingredientEmoji}>{ingredient.icon}</Text>
+            <View key={index} style={styles.ingredientItemRow}>
+              <View style={styles.ingredientDot} />
               <View style={styles.ingredientInfo}>
-                {isEditing ? (
-                  <>
-                    <TextInput
-                      style={[styles.ingredientName, styles.editableText]}
-                      value={ingredient.name}
-                      onChangeText={(value) => handleIngredientChange(index, 'name', value)}
-                      placeholder="Ingredient name"
-                    />
-                    <TextInput
-                      style={[styles.ingredientAmount, styles.editableText]}
-                      value={ingredient.amount}
-                      onChangeText={(value) => handleIngredientChange(index, 'amount', value)}
-                      placeholder="Amount"
-                    />
-                  </>
-                ) : (
-                  <>
-                    <Text style={styles.ingredientName}>{ingredient.name}</Text>
-                    <Text style={styles.ingredientAmount}>{ingredient.amount}</Text>
-                  </>
-                )}
-              </View>
-              <View style={styles.ingredientRight}>
-                {isEditing ? (
-                  <TextInput
-                    style={[styles.ingredientCalories, styles.editableText]}
-                    value={ingredient.calories.toString()}
-                    onChangeText={(value) => handleIngredientChange(index, 'calories', parseInt(value) || 0)}
-                    keyboardType="numeric"
-                    placeholder="0"
-                  />
-                ) : (
-                  <Text style={styles.ingredientCalories}>{ingredient.calories} kcal</Text>
-                )}
-                {isEditing && (
-                  <TouchableOpacity onPress={() => removeIngredient(index)} style={styles.removeIngredientButton}>
-                    <Ionicons name="close-circle" size={20} color="#FF6B6B" />
-                  </TouchableOpacity>
-                )}
+                <Text style={styles.ingredientNameText}>{ingredient.name}</Text>
+                <Text style={styles.ingredientQuantity}>{ingredient.amount}</Text>
               </View>
             </View>
           ))}
         </View>
 
         {/* Mood Selection */}
-        <View style={styles.moodSection}>
-          <Text style={styles.moodTitle}>How do you feel?</Text>
-          <View style={styles.moodOptions}>
+        <View style={styles.section}>
+          <Text style={styles.sectionTitle}>How are you feeling?</Text>
+          <View style={styles.moodGrid}>
             {moodOptions.map((mood, index) => (
           <TouchableOpacity
                 key={index}
                 style={[
                   styles.moodOption,
-                  selectedMood === index && styles.selectedMoodOption
+                  selectedMood === index && styles.selectedMood
                 ]}
-                onPress={() => setSelectedMood(index)}
+                onPress={() => setSelectedMood(selectedMood === index ? null : index)}
               >
                 <Text style={styles.moodEmoji}>{mood.emoji}</Text>
+                <Text style={styles.moodLabel}>{mood.label}</Text>
               </TouchableOpacity>
             ))}
           </View>
-          <View style={styles.moodLabels}>
-            {moodOptions.map((mood, index) => (
-              <Text key={index} style={styles.moodLabel}>{mood.label}</Text>
-            ))}
           </View>
-        </View>
+      </ScrollView>
 
         {/* Action Buttons */}
-        <View style={styles.actionButtons}>
-          <TouchableOpacity style={styles.editButton} onPress={() => setIsEditing(!isEditing)}>
-            <Text style={styles.editButtonText}>{isEditing ? 'Done' : 'Edit Meal'}</Text>
-          </TouchableOpacity>
-          
-          <View style={styles.bottomButtonsRow}>
-            <TouchableOpacity style={styles.saveToMealsButton} onPress={handleSave} disabled={saving}>
-              <Text style={styles.saveToMealsButtonText}>
-                {saving ? 'Saving...' : 'Save'}
+      <View style={[styles.actionContainer, { paddingBottom: insets.bottom >= 20 ? (insets.bottom + 20) : 20 }]}>
+        <TouchableOpacity 
+          style={styles.saveButton} 
+          onPress={handleSave}
+          disabled={saving}
+        >
+          <Ionicons name="bookmark-outline" size={20} color="#7B61FF" />
+          <Text style={styles.saveButtonText}>
+            {saving ? 'Saving...' : 'Save Meal'}
               </Text>
             </TouchableOpacity>
             
-            <TouchableOpacity style={styles.saveButton} onPress={handleDone} disabled={logging}>
-              <Text style={styles.saveButtonText}>
+        <TouchableOpacity 
+          style={styles.confirmButton} 
+          onPress={handleDone}
+          disabled={logging}
+        >
+          <Text style={styles.confirmButtonText}>
                 {logging ? 'Logging...' : 'Log Food'}
               </Text>
           </TouchableOpacity>
           </View>
-        </View>
-      </ScrollView>
     </SafeAreaView>
   );
 };
@@ -939,8 +831,22 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     paddingHorizontal: 20,
-    paddingTop: 12,
-    paddingBottom: 5,
+    paddingVertical: 16,
+    borderBottomWidth: 1,
+    borderBottomColor: '#f0f0f0',
+  },
+  backButton: {
+    marginRight: 16,
+  },
+  headerTitle: {
+    flex: 1,
+    fontSize: 18,
+    fontWeight: '600',
+    color: '#333',
+    textAlign: 'center',
+  },
+  content: {
+    flex: 1,
   },
   titleSection: {
     paddingHorizontal: 20,
@@ -1140,46 +1046,6 @@ const styles = StyleSheet.create({
     fontWeight: '600',
     color: '#333',
   },
-  moodSection: {
-    paddingHorizontal: 20,
-    marginBottom: 30,
-  },
-  moodTitle: {
-    fontSize: 20,
-    fontWeight: 'bold',
-    color: '#333',
-    marginBottom: 16,
-    textAlign: 'center',
-  },
-  moodOptions: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    marginBottom: 12,
-  },
-  moodOption: {
-    width: 50,
-    height: 50,
-    borderRadius: 25,
-    backgroundColor: '#F8FAFC',
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  selectedMoodOption: {
-    backgroundColor: '#6366F1',
-  },
-  moodEmoji: {
-    fontSize: 24,
-  },
-  moodLabels: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-  },
-  moodLabel: {
-    fontSize: 12,
-    color: '#666',
-    textAlign: 'center',
-    width: 60,
-  },
   editableText: {
     backgroundColor: '#F8FAFC',
     borderWidth: 1,
@@ -1204,54 +1070,148 @@ const styles = StyleSheet.create({
   removeIngredientButton: {
     padding: 2,
   },
-  actionButtons: {
-    paddingHorizontal: 20,
-    paddingBottom: 40,
-  },
-  saveButton: {
-    backgroundColor: '#6366F1',
+  // Photo container styles (matching PhotoCalorieScreen)
+  photoContainer: {
+    position: 'relative',
+    margin: 20,
     borderRadius: 12,
-    padding: 18,
-    alignItems: 'center',
-    flex: 1,
-    marginLeft: 6,
+    overflow: 'hidden',
   },
-  saveButtonText: {
-    color: 'white',
-    fontSize: 18,
-    fontWeight: 'bold',
-  },
-  editButton: {
-    backgroundColor: 'transparent',
-    borderWidth: 2,
-    borderColor: '#6366F1',
+  photo: {
+    width: '100%',
+    height: 200,
     borderRadius: 12,
-    padding: 15,
-    alignItems: 'center',
   },
-  editButtonText: {
-    color: '#6366F1',
-    fontSize: 18,
-    fontWeight: 'bold',
+  // Section styles (matching PhotoCalorieScreen)
+  section: {
+    marginHorizontal: 20,
+    marginBottom: 24,
   },
-  saveToMealsButton: {
-    backgroundColor: '#8B5CF6',
-    borderRadius: 12,
-    padding: 18,
-    alignItems: 'center',
-    flex: 1,
-    marginRight: 6,
-  },
-  saveToMealsButtonText: {
-    color: 'white',
-    fontSize: 18,
-    fontWeight: 'bold',
-  },
-  bottomButtonsRow: {
+  sectionHeader: {
     flexDirection: 'row',
     justifyContent: 'space-between',
-    marginTop: 12,
-    gap: 12,
+    alignItems: 'center',
+    marginBottom: 8,
+  },
+  sectionTitle: {
+    fontSize: 18,
+    fontWeight: '600',
+    color: '#333',
+  },
+  foodName: {
+    fontSize: 16,
+    color: '#333',
+    marginBottom: 4,
+  },
+  confidence: {
+    fontSize: 14,
+    color: '#666',
+  },
+  // Nutrition grid styles (matching PhotoCalorieScreen)
+  nutritionGrid: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    backgroundColor: '#f8f9fa',
+    borderRadius: 12,
+    padding: 16,
+  },
+  nutritionItem: {
+    alignItems: 'center',
+  },
+  nutritionValue: {
+    fontSize: 18,
+    fontWeight: '700',
+    color: '#7B61FF',
+  },
+  nutritionLabel: {
+    fontSize: 12,
+    color: '#666',
+    marginTop: 4,
+  },
+  // Ingredient row styles (matching PhotoCalorieScreen)
+  ingredientItemRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: 12,
+  },
+  ingredientDot: {
+    width: 6,
+    height: 6,
+    borderRadius: 3,
+    backgroundColor: '#7B61FF',
+    marginRight: 12,
+  },
+  ingredientNameText: {
+    fontSize: 16,
+    color: '#333',
+    fontWeight: '500',
+  },
+  ingredientQuantity: {
+    fontSize: 14,
+    color: '#666',
+    marginTop: 2,
+  },
+  // Mood grid styles (matching PhotoCalorieScreen)
+  moodGrid: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    justifyContent: 'space-between',
+  },
+  selectedMood: {
+    backgroundColor: '#E8E4FF',
+    borderWidth: 2,
+    borderColor: '#7B61FF',
+  },
+  moodOption: {
+    width: '30%',
+    alignItems: 'center',
+    padding: 12,
+    borderRadius: 12,
+    marginBottom: 12,
+    backgroundColor: '#f8f9fa',
+  },
+  moodEmoji: {
+    fontSize: 24,
+    marginBottom: 4,
+  },
+  moodLabel: {
+    fontSize: 12,
+    color: '#666',
+  },
+  // Action container styles (matching PhotoCalorieScreen)
+  actionContainer: {
+    flexDirection: 'row',
+    padding: 20,
+    borderTopWidth: 1,
+    borderTopColor: '#f0f0f0',
+  },
+  saveButton: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: '#f8f9fa',
+    borderRadius: 12,
+    paddingVertical: 16,
+    marginRight: 12,
+  },
+  saveButtonText: {
+    marginLeft: 6,
+    fontSize: 16,
+    fontWeight: '600',
+    color: '#7B61FF',
+  },
+  confirmButton: {
+    flex: 2,
+    backgroundColor: '#7B61FF',
+    borderRadius: 12,
+    paddingVertical: 16,
+    alignItems: 'center',
+  },
+  confirmButtonText: {
+    fontSize: 16,
+    fontWeight: '600',
+    color: '#fff',
   },
 });
 

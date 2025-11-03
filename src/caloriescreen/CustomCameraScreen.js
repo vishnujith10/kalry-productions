@@ -3,10 +3,12 @@ import { CameraView, useCameraPermissions } from 'expo-camera';
 import * as ImagePicker from 'expo-image-picker';
 import React, { useEffect, useRef, useState } from 'react';
 import { Alert, Animated, Dimensions, Easing, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 const { width, height } = Dimensions.get('window');
 
 export default function CustomCameraScreen({ navigation }) {
+  const insets = useSafeAreaInsets(); // Get safe area insets for bottom navigation
   const cameraRef = useRef(null);
   const [permission, requestPermission] = useCameraPermissions();
   const [isCameraReady, setIsCameraReady] = useState(false);
@@ -218,10 +220,10 @@ export default function CustomCameraScreen({ navigation }) {
         </View>
 
         {/* Bottom gradient overlay */}
-        <View style={styles.bottomGradient} />
+        <View style={[styles.bottomGradient, { bottom: -insets.bottom }]} />
         
         {/* Enhanced bottom controls */}
-        <View style={styles.bottomControls}>
+        <View style={[styles.bottomControls, { bottom: insets.bottom >= 20 ? insets.bottom : 0, paddingBottom: insets.bottom >= 20 ? (insets.bottom + 40) : 40 }]}>
           <View style={styles.controlsContainer}>
             <TouchableOpacity onPress={handleOpenGallery} style={styles.galleryButton}>
               <View style={styles.galleryIconContainer}>

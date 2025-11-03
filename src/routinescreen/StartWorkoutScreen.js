@@ -16,7 +16,7 @@ import {
     TouchableWithoutFeedback,
     View
 } from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
+import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { workoutAnalyticsService } from '../algorithms/WorkoutAnalyticsService';
 import WorkoutFeedbackModal from '../components/WorkoutFeedbackModal';
 import supabase from '../lib/supabase';
@@ -125,6 +125,7 @@ const COLORS = {
 };
 
 export default function StartWorkoutScreen({ navigation, route }) {
+  const insets = useSafeAreaInsets(); // Get safe area insets for bottom navigation
   const [exercises, setExercises] = useState([]);
   const [workoutTime, setWorkoutTime] = useState(0);
   const [isRunning, setIsRunning] = useState(false);
@@ -759,7 +760,7 @@ export default function StartWorkoutScreen({ navigation, route }) {
       <ScrollView 
         style={styles.exercisesList}
         showsVerticalScrollIndicator={false}
-        contentContainerStyle={styles.exercisesContent}
+        contentContainerStyle={[styles.exercisesContent, { paddingBottom: insets.bottom >= 20 ? (100 + insets.bottom) : 100 }]}
           keyboardShouldPersistTaps="handled"
           onScrollBeginDrag={() => Keyboard.dismiss()}
           scrollEventThrottle={16}
@@ -1454,7 +1455,7 @@ const styles = StyleSheet.create({
   exercisesContent: {
     flexGrow: 1,
     padding: 20,
-    paddingBottom: 100,
+    paddingBottom: 100, // Will be adjusted dynamically via insets
   },
   exerciseCard: {
     backgroundColor: COLORS.white,

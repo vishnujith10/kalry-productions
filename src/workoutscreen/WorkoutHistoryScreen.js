@@ -11,7 +11,7 @@ import {
   TouchableOpacity,
   View
 } from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
+import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import supabase from '../lib/supabase';
 
 // Group workouts by date helper function
@@ -184,6 +184,7 @@ const formatDuration = (seconds) => {
 
 // Add FooterBar component
 const FooterBar = ({ navigation, activeTab }) => {
+  const insets = useSafeAreaInsets();
   const tabs = [
     {
       key: 'Home',
@@ -213,7 +214,7 @@ const FooterBar = ({ navigation, activeTab }) => {
   ];
 
   return (
-    <View style={footerStyles.container}>
+    <View style={[footerStyles.container, { bottom: insets.bottom >= 20 ? (insets.bottom + 16) : 16 }]}>
       <View style={footerStyles.ovalFooter}>
         {tabs.map(tab => (
           <TouchableOpacity
@@ -245,6 +246,7 @@ const FooterBar = ({ navigation, activeTab }) => {
 };
 
 const WorkoutHistoryScreen = () => {
+  const insets = useSafeAreaInsets(); // Get safe area insets for bottom navigation
   const navigation = useNavigation();
   const [selectedFilter, setSelectedFilter] = useState('All');
   const [selectedTimeFilter, setSelectedTimeFilter] = useState('Last 7 Days');
@@ -467,7 +469,7 @@ const WorkoutHistoryScreen = () => {
   );
 
   return (
-    <SafeAreaView style={styles.container}>
+    <SafeAreaView style={styles.container} edges={['top']}>
       <StatusBar barStyle="dark-content" backgroundColor="#FFFFFF" />
       
         {/* Header */}
@@ -486,7 +488,11 @@ const WorkoutHistoryScreen = () => {
         </TouchableOpacity>
         </View>
 
-      <ScrollView style={styles.content} contentContainerStyle={{ paddingBottom: 110 }} showsVerticalScrollIndicator={false}>
+      <ScrollView 
+        style={styles.content} 
+        contentContainerStyle={{ paddingBottom: insets.bottom >= 20 ? (110 + insets.bottom) : 110 }} 
+        showsVerticalScrollIndicator={false}
+      >
         {/* Filter Tabs */}
         <View style={styles.filterContainer}>
           <ScrollView 
@@ -884,7 +890,6 @@ const footerStyles = StyleSheet.create({
     position: 'absolute',
     left: 16,
     right: 16,
-    bottom: Platform.OS === 'ios' ? 20 : 16,
     backgroundColor: 'transparent',
     alignItems: 'center',
     zIndex: 100,

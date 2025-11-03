@@ -4,7 +4,7 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useFocusEffect } from '@react-navigation/native';
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { Alert, Animated, Modal, ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native';
-import { SafeAreaProvider, SafeAreaView } from 'react-native-safe-area-context';
+import { SafeAreaProvider, SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import supabase from '../lib/supabase';
 import { getDailyGoal, setDailyGoal } from '../utils/goalStorage';
 import useTodaySteps from '../utils/useTodaySteps';
@@ -19,6 +19,7 @@ const globalStepCache = {
 };
 
 const StepTrackerScreen = ({ navigation }) => {
+  const insets = useSafeAreaInsets(); // Get safe area insets for bottom navigation
   const [userId, setUserId] = useState(null);
   const [goal, setGoal] = useState(10000);
   const [showGoalModal, setShowGoalModal] = useState(false);
@@ -512,7 +513,7 @@ const StepTrackerScreen = ({ navigation }) => {
           </TouchableOpacity>
         </View>
 
-        <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={styles.scrollContent}>
+        <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={[styles.scrollContent, { paddingBottom: insets.bottom >= 20 ? (40 + insets.bottom) : 40 }]}>
 
           {/* STEP COUNTER DISPLAY */}
           <View style={styles.overviewCard}>
@@ -694,7 +695,7 @@ const styles = StyleSheet.create({
   },
   scrollContent: {
     padding: 20,
-    paddingBottom: 40,
+    paddingBottom: 40, // Will be adjusted dynamically via insets
   },
   overviewCard: {
     backgroundColor: 'white',

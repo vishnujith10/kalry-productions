@@ -2,7 +2,7 @@
 import { Ionicons } from '@expo/vector-icons';
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { Alert, Animated, Dimensions, FlatList, Image, Modal, ScrollView, StatusBar, StyleSheet, Switch, Text, TextInput, TouchableOpacity, TouchableWithoutFeedback, View } from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
+import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import supabase from '../lib/supabase';
 import { calculateTotalWorkoutCalories } from '../utils/calorieCalculator';
 
@@ -61,6 +61,7 @@ const SESSION_TEMPLATES = {
 };
 
 export default function CardioSessionBuilder({ navigation }) {
+  const insets = useSafeAreaInsets(); // Get safe area insets for bottom navigation
   // State management
   const [sessionType, setSessionType] = useState('');
   const [exercises, setExercises] = useState([]);
@@ -1011,7 +1012,7 @@ export default function CardioSessionBuilder({ navigation }) {
         </View>
 
         {/* Action Buttons */}
-        <View style={styles.actionButtonsContainer}>
+        <View style={[styles.actionButtonsContainer, { paddingBottom: insets.bottom >= 20 ? (insets.bottom + 20) : 20 }]}>
           {/* Clear All Button - Top Center */}
           <TouchableOpacity style={styles.clearButtonTop} onPress={clearAll}>
             <Text style={styles.clearButtonText}>Clear All</Text>
@@ -1032,7 +1033,7 @@ export default function CardioSessionBuilder({ navigation }) {
       {/* Add Exercise Modal */}
       <Modal visible={addModalVisible} animationType="slide" transparent>
         <View style={styles.modalOverlay}>
-          <View style={styles.modal}>
+          <View style={[styles.modal, { paddingBottom: insets.bottom >= 20 ? (insets.bottom + 20) : 20 }]}>
             <View style={styles.modalHeader}>
               <Text style={styles.modalTitle}>Add Exercise</Text>
               <TouchableOpacity onPress={() => setAddModalVisible(false)}>
@@ -1060,6 +1061,7 @@ export default function CardioSessionBuilder({ navigation }) {
                   <FlatList
                     data={filteredExercises}
                     keyExtractor={item => item.id?.toString() || Math.random().toString()}
+                    contentContainerStyle={{ paddingBottom: insets.bottom >= 20 ? (insets.bottom + 20) : 20 }}
                     renderItem={({ item }) => (
               <TouchableOpacity
                         style={styles.exerciseOption}
@@ -1149,7 +1151,7 @@ export default function CardioSessionBuilder({ navigation }) {
         </View>
             </View>
 
-                <View style={styles.modalActions}>
+                <View style={[styles.modalActions, { marginBottom: insets.bottom >= 20 ? insets.bottom : 0 }]}>
                 <TouchableOpacity
                     style={styles.modalCancelButton}
                     onPress={() => setSelectedExercise(null)}

@@ -1,7 +1,7 @@
 import { Ionicons } from '@expo/vector-icons';
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { Alert, Animated, Dimensions, Image, ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
+import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import supabase from '../lib/supabase';
 import { calculateCardioCalories, calculateTotalWorkoutCalories } from '../utils/calorieCalculator';
 import { workoutAnalyticsService } from '../algorithms/WorkoutAnalyticsService';
@@ -31,6 +31,7 @@ const COLORS = {
 
 export default function WorkoutStartScreen({ route, navigation }) {
   const { exercises, sessionType, intensity, restBetweenRounds, sessionData } = route.params;
+  const insets = useSafeAreaInsets(); // Get safe area insets for bottom navigation
   
   // State management
   const [currentExerciseIndex, setCurrentExerciseIndex] = useState(0);
@@ -706,7 +707,7 @@ export default function WorkoutStartScreen({ route, navigation }) {
 
 
   return (
-    <SafeAreaView style={styles.container} edges={['top', 'bottom']}>
+    <SafeAreaView style={styles.container} edges={['top']}>
         {/* Segmented Progress Bar */}
         <View style={styles.progressContainer}>
           <View style={styles.segmentedProgressBar}>
@@ -803,7 +804,7 @@ export default function WorkoutStartScreen({ route, navigation }) {
       )}
 
       {/* Bottom Controls - Only 3 buttons: Stop, Pause, Skip */}
-      <View style={styles.bottomControls}>
+      <View style={[styles.bottomControls, { paddingBottom: insets.bottom >= 20 ? (insets.bottom + 20) : 20 }]}>
         <TouchableOpacity style={styles.controlButton} onPress={handleStop}>
           <Ionicons name="close" size={24} color={COLORS.white} />
         </TouchableOpacity>

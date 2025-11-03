@@ -13,7 +13,7 @@ import {
   View
 } from "react-native";
 import { LineChart } from "react-native-chart-kit";
-import { SafeAreaView } from "react-native-safe-area-context";
+import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context";
 import { OnboardingContext } from "../context/OnboardingContext";
 import supabase from "../lib/supabase";
 
@@ -296,6 +296,7 @@ const WeightLogItem = ({ item, index, logs, weightData, handleDeleteLog, handleD
 };
 
 const WeightTrackerScreen = ({ navigation }) => {
+  const insets = useSafeAreaInsets(); // Get safe area insets for bottom navigation
   const { onboardingData, setOnboardingData } = useContext(OnboardingContext);
   
   // Initialize state with cached data (Instagram pattern)
@@ -827,6 +828,15 @@ const WeightTrackerScreen = ({ navigation }) => {
           />
         </View>
         
+        {/* Add New Weight Button */}
+        <TouchableOpacity
+          style={styles.addBtnFixed}
+          onPress={navigateToAddWeight}
+        >
+          <Ionicons name="add" size={24} color={WHITE} />
+          <Text style={styles.addBtnText}>Add New Weight</Text>
+        </TouchableOpacity>
+        
         {/* Weight Trend Analysis Section */}
         {trendAnalysis && (
           <View style={styles.trendAnalysisCard}>
@@ -920,7 +930,7 @@ const WeightTrackerScreen = ({ navigation }) => {
   ), []);
 
   return (
-    <SafeAreaView style={styles.container}>
+    <SafeAreaView style={styles.container} edges={['top']}>
       {/* Custom Header */}
       <View style={styles.customHeader}>
         <TouchableOpacity 
@@ -939,19 +949,11 @@ const WeightTrackerScreen = ({ navigation }) => {
         renderItem={renderLogItem}
         ListEmptyComponent={ListEmptyComponent}
         ListHeaderComponent={renderHeader}
-        contentContainerStyle={styles.scrollContent}
+        contentContainerStyle={[styles.scrollContent, { paddingBottom: insets.bottom >= 20 ? (100 + insets.bottom) : 100 }]}
         removeClippedSubviews={true} // Performance optimization
         maxToRenderPerBatch={10} // Performance optimization
         windowSize={10} // Performance optimization
       />
-      
-      <TouchableOpacity
-        style={styles.addBtn}
-        onPress={navigateToAddWeight}
-      >
-        <Ionicons name="add" size={24} color={WHITE} />
-        <Text style={styles.addBtnText}>Add New Weight</Text>
-      </TouchableOpacity>
     </SafeAreaView>
   );
 };
@@ -1126,11 +1128,21 @@ const styles = StyleSheet.create({
     backgroundColor: PRIMARY,
     borderRadius: 32,
     paddingVertical: 18,
-    margin: 20,
+    marginHorizontal: 20,
     position: "absolute",
     left: 0,
     right: 0,
-    bottom: 0,
+  },
+  addBtnFixed: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: PRIMARY,
+    borderRadius: 32,
+    paddingVertical: 18,
+    marginHorizontal: 12,
+    marginTop: 20,
+    marginBottom: 20,
   },
   addBtnText: {
     color: WHITE,

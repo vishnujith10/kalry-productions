@@ -4,12 +4,13 @@ import Constants from 'expo-constants';
 import * as FileSystem from 'expo-file-system/legacy';
 import React, { useEffect, useState } from 'react';
 import { ActivityIndicator, Alert, Image, ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
+import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { CompassionateFeedbackEngine } from '../algorithms/CompassionateFeedbackEngine';
 import supabase from '../lib/supabase';
 import { createFoodLog } from '../utils/api';
 
 const PhotoCalorieScreen = ({ route, navigation }) => {
+  const insets = useSafeAreaInsets(); // Get safe area insets for bottom navigation
   const { photoUri, mealType } = route.params;
   const [isLoading, setIsLoading] = useState(true);
   const [analysis, setAnalysis] = useState(null);
@@ -362,7 +363,7 @@ Guidelines:
           <Ionicons name="camera-outline" size={80} color="#ccc" />
           <Text style={styles.errorTitle}>No Food Detected</Text>
           <Text style={styles.errorMessage}>
-            We couldn't identify any food in this image. Please try taking another photo with:
+            We couldn&apos;t identify any food in this image. Please try taking another photo with:
           </Text>
           <View style={styles.errorTips}>
             <Text style={styles.errorTip}>• Good lighting</Text>
@@ -396,7 +397,7 @@ Guidelines:
           <Ionicons name="alert-circle-outline" size={80} color="#ff4757" />
           <Text style={styles.errorTitle}>Analysis Failed</Text>
           <Text style={styles.errorMessage}>
-            We couldn't analyze this image. Please try taking another photo.
+            We couldn&apos;t analyze this image. Please try taking another photo.
           </Text>
           <TouchableOpacity style={styles.retryButton} onPress={handleRetakePhoto}>
             <Text style={styles.retryButtonText}>Try Again</Text>
@@ -417,10 +418,19 @@ Guidelines:
         <View style={{ width: 28 }} />
       </View>
 
-      <ScrollView style={styles.content} showsVerticalScrollIndicator={false}>
+      <ScrollView 
+        style={styles.content} 
+        showsVerticalScrollIndicator={false}
+        contentContainerStyle={{ paddingBottom: insets.bottom >= 20 ? (insets.bottom + 20) : 20 }}
+      >
         {/* Photo */}
         <View style={styles.photoContainer}>
-          <Image source={{ uri: photoUri }} style={styles.photo} />
+          <Image 
+            source={{ 
+              uri: photoUri || 'https://images.unsplash.com/photo-1546069901-ba9599a7e63c?w=400&h=300&fit=crop' 
+            }} 
+            style={styles.photo} 
+          />
           <TouchableOpacity style={styles.retakeButton} onPress={handleRetakePhoto}>
             <Ionicons name="camera-outline" size={20} color="#7B61FF" />
             <Text style={styles.retakeText}>Retake</Text>
@@ -500,7 +510,7 @@ Guidelines:
       </ScrollView>
 
       {/* Action Buttons */}
-      <View style={styles.actionContainer}>
+      <View style={[styles.actionContainer, { paddingBottom: insets.bottom >= 20 ? (insets.bottom + 20) : 20 }]}>
         <TouchableOpacity 
           style={styles.saveButton} 
           onPress={handleSaveToSavedMeals}

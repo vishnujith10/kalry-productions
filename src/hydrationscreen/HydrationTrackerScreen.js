@@ -4,7 +4,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { useNavigation } from '@react-navigation/native';
 import React, { useEffect, useMemo, useState } from 'react';
 import { Alert, Animated, Modal, ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
+import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import Icon from 'react-native-vector-icons/Feather';
 import { ContextualPersonalizationEngine } from '../algorithms/ContextualPersonalizationEngine';
 import supabase from '../lib/supabase';
@@ -19,6 +19,7 @@ const globalHydrationCache = {
 
 const HydrationTrackerScreen = () => {
   const navigation = useNavigation();
+  const insets = useSafeAreaInsets(); // Get safe area insets for bottom navigation
   // Initialize state with cached data (Instagram pattern)
   const [currentIntake, setCurrentIntake] = useState(() => globalHydrationCache.cachedData?.currentIntake || 0);
   const [dailyGoal, setDailyGoal] = useState(() => globalHydrationCache.cachedData?.dailyGoal || 2.5);
@@ -900,7 +901,10 @@ const HydrationTrackerScreen = () => {
         </View>
       </SafeAreaView>
       
-      <ScrollView style={styles.scrollContainer}>
+      <ScrollView 
+        style={styles.scrollContainer}
+        contentContainerStyle={{ paddingBottom: insets.bottom >= 20 ? (insets.bottom + 20) : 20 }}
+      >
         <View style={styles.innerContainer}>
         <View style={styles.waterContainer}>
           {/* Glass jar rim effect */}

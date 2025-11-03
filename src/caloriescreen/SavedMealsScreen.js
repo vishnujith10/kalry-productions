@@ -2,7 +2,7 @@ import { Ionicons, MaterialCommunityIcons } from '@expo/vector-icons';
 import { useFocusEffect } from '@react-navigation/native';
 import React, { useCallback, useState } from 'react';
 import { Alert, FlatList, Image, ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
+import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import supabase from '../lib/supabase';
 
 // Global cache for saved meals data
@@ -25,6 +25,7 @@ const FILTERS = [
 const placeholderImg = 'https://images.unsplash.com/photo-1546069901-ba9599a7e63c?w=400&h=300&fit=crop';
 
 const SavedMealsScreen = ({ navigation, route }) => {
+  const insets = useSafeAreaInsets(); // Get safe area insets for bottom navigation
   // Initialize state with cached data (Instagram pattern)
   const [meals, setMeals] = useState(() => globalSavedMealsCache.cachedData?.meals || []);
   const [search, setSearch] = useState('');
@@ -276,7 +277,7 @@ const SavedMealsScreen = ({ navigation, route }) => {
   );
 
   return (
-    <SafeAreaView style={{ flex: 1, backgroundColor: '#fff', paddingTop: 0 }} edges={['top','bottom']}>
+    <SafeAreaView style={{ flex: 1, backgroundColor: '#fff', paddingTop: 0 }} edges={['top']}>
       <View style={styles.headerRow}>
         <TouchableOpacity onPress={() => navigation.navigate('Home')} style={{ marginRight: 12 }}>
         <Ionicons name="chevron-back" size={24} color="black" />
@@ -313,7 +314,7 @@ const SavedMealsScreen = ({ navigation, route }) => {
         renderItem={renderMeal}
         keyExtractor={(_, idx) => idx.toString()}
         numColumns={2}
-        contentContainerStyle={styles.grid}
+        contentContainerStyle={[styles.grid, { paddingBottom: insets.bottom >= 20 ? (32 + insets.bottom) : 32 }]}
         showsVerticalScrollIndicator={false}
       />
     </SafeAreaView>

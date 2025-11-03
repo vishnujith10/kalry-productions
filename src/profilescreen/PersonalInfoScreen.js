@@ -12,6 +12,7 @@ import {
     TouchableOpacity,
     View
 } from 'react-native';
+import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import supabase from '../lib/supabase';
 
 const COLORS = {
@@ -31,6 +32,7 @@ const COLORS = {
 };
 
 const PersonalInfoScreen = () => {
+  const insets = useSafeAreaInsets(); // Get safe area insets for bottom navigation
   const navigation = useNavigation();
   const [todayCalories, setTodayCalories] = useState(0);
   const [activeDays, setActiveDays] = useState(0);
@@ -261,7 +263,7 @@ const PersonalInfoScreen = () => {
   };
 
   return (
-    <View style={styles.container}>
+    <SafeAreaView style={styles.container} edges={['top']}>
       <StatusBar barStyle="dark-content" backgroundColor="#E8E9F0" />
       
       {/* Header */}
@@ -276,7 +278,11 @@ const PersonalInfoScreen = () => {
         <View style={styles.placeholder} />
       </View>
 
-      <ScrollView style={styles.content} showsVerticalScrollIndicator={false}>
+      <ScrollView 
+        style={styles.content} 
+        contentContainerStyle={{ paddingBottom: insets.bottom >= 20 ? (insets.bottom + 20) : 20 }}
+        showsVerticalScrollIndicator={false}
+      >
         {/* Quick Stats */}
         <View style={styles.quickStatsSection}>
           <Text style={styles.sectionTitle}>Quick Stats</Text>
@@ -326,7 +332,7 @@ const PersonalInfoScreen = () => {
                      {renderEditableField('prefered_workout', 'Preferred Workout Types', userProfile?.prefered_workout, '', 'barbell-outline')}
         </View>
       </ScrollView>
-    </View>
+    </SafeAreaView>
   );
 };
 

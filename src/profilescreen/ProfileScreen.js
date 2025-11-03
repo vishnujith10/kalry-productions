@@ -11,12 +11,13 @@ import {
     TouchableOpacity,
     View
 } from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
+import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import supabase from '../lib/supabase';
 import { getResponsiveFontSize, getResponsivePadding } from '../utils/responsive';
 
 // Updated FooterBar component with oval design
 const FooterBar = ({ navigation, activeTab }) => {
+  const insets = useSafeAreaInsets(); // Get safe area insets for bottom navigation
   const tabs = [
     {
       key: 'Home',
@@ -46,7 +47,7 @@ const FooterBar = ({ navigation, activeTab }) => {
   ];
 
   return (
-    <View style={footerStyles.container}>
+    <View style={[footerStyles.container, { bottom: insets.bottom >= 20 ? (insets.bottom + getResponsivePadding(16)) : getResponsivePadding(16) }]}>
       <View style={footerStyles.ovalFooter}>
         {tabs.map(tab => (
           <TouchableOpacity
@@ -83,6 +84,7 @@ const FooterBar = ({ navigation, activeTab }) => {
 };
 
 const ProfileScreen = () => {
+  const insets = useSafeAreaInsets(); // Get safe area insets for bottom navigation
   const navigation = useNavigation();
   const [userProfile, setUserProfile] = useState(null);
   const [loading, setLoading] = useState(true);
@@ -139,7 +141,11 @@ const ProfileScreen = () => {
         <View style={styles.placeholder} />
       </View>
 
-      <ScrollView style={styles.content} contentContainerStyle={{ paddingBottom: 120 }} showsVerticalScrollIndicator={false}>
+      <ScrollView 
+        style={styles.content} 
+        contentContainerStyle={{ paddingBottom: insets.bottom >= 20 ? (120 + insets.bottom) : 120 }} 
+        showsVerticalScrollIndicator={false}
+      >
         {/* Profile Section */}
         <View style={styles.profileSection}>
           <View style={styles.avatarContainer}>
@@ -423,7 +429,6 @@ const footerStyles = StyleSheet.create({
     position: 'absolute',
     left: getResponsivePadding(16),
     right: getResponsivePadding(16),
-    bottom: Platform.OS === 'ios' ? getResponsivePadding(20) : getResponsivePadding(16),
     backgroundColor: 'transparent',
     alignItems: 'center',
     zIndex: 100,

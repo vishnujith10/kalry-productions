@@ -16,13 +16,15 @@ import {
   TouchableOpacity,
   View,
 } from "react-native";
-import { SafeAreaView } from "react-native-safe-area-context";
+import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context";
 import supabase from "../lib/supabase";
 import { createFoodLog } from "../utils/api";
 
 const VoiceCalorieScreen = ({ navigation, route }) => {
   const { mealType = "Quick Log", selectedDate } = route.params || {};
+  const insets = useSafeAreaInsets(); // Get safe area insets for bottom navigation
   const recordingRef = useRef(null);
+  const autoStopTimerRef = useRef(null);
   const ensureAudioPermission = async () => {
     try {
       if (Platform.OS === 'android') {
@@ -45,10 +47,7 @@ const VoiceCalorieScreen = ({ navigation, route }) => {
   const [transcribedText, setTranscribedText] = useState("");
   const [lastRecordingUri, setLastRecordingUri] = useState(null);
   const micPulse = useRef(new Animated.Value(0)).current;
-  const [showListening, setShowListening] = useState(false);
-  const [audioLevels, setAudioLevels] = useState(
-    Array.from({ length: 20 }, () => 0)
-  );
+  // removed showListening state to avoid unused variable
   const apiKey = process.env.EXPO_PUBLIC_GEMINI_API_KEY;
   const genAI = new GoogleGenerativeAI(apiKey);
 
@@ -59,7 +58,7 @@ const VoiceCalorieScreen = ({ navigation, route }) => {
       if (recordingRef.current) {
         try {
           recordingRef.current.stopAndUnloadAsync && recordingRef.current.stopAndUnloadAsync();
-        } catch (e) {
+        } catch (_e) {
           // ignore
         } finally {
           recordingRef.current = null;
@@ -80,7 +79,7 @@ const VoiceCalorieScreen = ({ navigation, route }) => {
       if (recordingRef.current) {
         try {
           await (recordingRef.current.stopAndUnloadAsync && recordingRef.current.stopAndUnloadAsync());
-        } catch (e) {
+        } catch (_e) {
           // ignore
         } finally {
           recordingRef.current = null;
@@ -90,12 +89,33 @@ const VoiceCalorieScreen = ({ navigation, route }) => {
         allowsRecordingIOS: true,
         playsInSilentModeIOS: true,
       });
-      const { recording } = await Audio.Recording.createAsync(
-        Audio.RecordingOptionsPresets.HIGH_QUALITY
-      );
+      // Use smaller, faster recording profile to reduce upload/processing time
+      const RECORDING_OPTIONS = {
+        android: {
+          extension: '.m4a',
+          outputFormat: Audio.AndroidOutputFormat.MPEG_4,
+          audioEncoder: Audio.AndroidAudioEncoder.AAC,
+          sampleRate: 22050,
+          numberOfChannels: 1,
+          bitRate: 64000,
+        },
+        ios: {
+          extension: '.m4a',
+          outputFormat: Audio.IOSOutputFormat.MPEG4AAC,
+          audioQuality: Audio.IOSAudioQuality.LOW,
+          sampleRate: 22050,
+          numberOfChannels: 1,
+          bitRate: 64000,
+          linearPCMBitDepth: 16,
+          linearPCMIsBigEndian: false,
+          linearPCMIsFloat: false,
+        },
+        web: {},
+      };
+      const { recording } = await Audio.Recording.createAsync(RECORDING_OPTIONS);
       recordingRef.current = recording;
       setIsRecording(true);
-      setShowListening(true);
+      // listening indicator handled by animations only
       // Start mic pulse animation
       Animated.loop(
         Animated.sequence([
@@ -106,8 +126,15 @@ const VoiceCalorieScreen = ({ navigation, route }) => {
       setNutritionData(null);
       setTranscribedText("");
       // No waveform animation; only mic pulse
-    } catch (err) {
-      console.log('startRecording error (VoiceCalorieScreen):', err);
+      // Auto-stop after 8s to avoid long recordings/timeouts
+      if (autoStopTimerRef.current) clearTimeout(autoStopTimerRef.current);
+      autoStopTimerRef.current = setTimeout(() => {
+        if (recordingRef.current) {
+          stopRecording().catch(() => {});
+        }
+      }, 8000);
+    } catch (_err) {
+      console.log('startRecording error (VoiceCalorieScreen):', _err);
       Alert.alert("Recording Error", "Could not start recording.");
     }
   };
@@ -118,6 +145,10 @@ const VoiceCalorieScreen = ({ navigation, route }) => {
     micPulse.stopAnimation(() => {
       micPulse.setValue(0);
     });
+    if (autoStopTimerRef.current) {
+      clearTimeout(autoStopTimerRef.current);
+      autoStopTimerRef.current = null;
+    }
     if (!recordingRef.current) return;
     
     try {
@@ -126,35 +157,63 @@ const VoiceCalorieScreen = ({ navigation, route }) => {
       recordingRef.current = null;
       
       if (uri) {
+        // Ignore extremely short/empty clips (< 0.7s)
+        try {
+          const info = await FileSystem.getInfoAsync(uri);
+          if (info?.size && info.size < 7000) {
+            setTranscribedText("Could not hear you. Please try speaking a bit longer and closer to the mic.");
+            return;
+          }
+        } catch {}
         setLastRecordingUri(uri);
         // Automatically transcribe when stopping to show what user said
         setIsLoading(true);
         await transcribeAudio(uri);
         setIsLoading(false);
       }
-    } catch (error) {
-      console.log('Stop recording error:', error);
+    } catch (_error) {
+      console.log('Stop recording error:', _error);
       setIsLoading(false);
     }
+  };
+
+  // Utility: timeout wrapper for promises
+  const raceWithTimeout = (promise, ms, timeoutMessage = 'Request timed out') => {
+    return Promise.race([
+      promise,
+      new Promise((_, reject) => setTimeout(() => reject(new Error(timeoutMessage)), ms)),
+    ]);
   };
 
   // Transcribe audio and show transcription
   const transcribeAudio = async (uri) => {
     try {
-      const model = genAI.getGenerativeModel({ model: "gemini-2.0-flash" });
+      const models = ["gemini-2.0-flash", "gemini-1.5-flash", "gemini-1.5-pro"];
       const audioData = await FileSystem.readAsStringAsync(uri, {
         encoding: "base64",
       });
       
-      const prompt = `Transcribe ONLY what the user said in this audio. Return ONLY the spoken words, no JSON, no punctuation, no explanations.`;
+      const prompt = `Transcribe ONLY what the user said in this audio. Translate to English if needed, but return ONLY English text. Return ONLY the spoken words in English, no JSON, no punctuation, no explanations, no other languages.`;
 
-      const result = await model.generateContent([
-        prompt,
-        { inlineData: { mimeType: "audio/mp4", data: audioData } },
-      ]);
-      
-      const response = await result.response;
-      let text = response.text().trim();
+      let text = '';
+      for (const name of models) {
+        try {
+          const model = genAI.getGenerativeModel({ model: name });
+          const result = await raceWithTimeout(
+            model.generateContent([
+              prompt,
+              { inlineData: { mimeType: "audio/m4a", data: audioData } },
+            ]),
+            12000,
+            'Transcription timed out'
+          );
+          const response = await result.response;
+          text = response.text().trim();
+          if (text) break;
+        } catch (_e) {
+          // try next model
+        }
+      }
       
       // Clean response
       text = text.replace(/```json\s*/g, '').replace(/```\s*/g, '').trim();
@@ -177,13 +236,17 @@ const VoiceCalorieScreen = ({ navigation, route }) => {
     setIsLoading(true);
     setIsConverting(true); // Show full-screen loading modal
     try {
-      // Use fastest model (gemini-2.0-flash is optimized for speed)
-      const model = genAI.getGenerativeModel({ model: "gemini-2.0-flash" });
+      // Try fastest → robust models sequentially
+      const models = ["gemini-2.0-flash", "gemini-1.5-flash", "gemini-1.5-pro"];
       const audioData = await FileSystem.readAsStringAsync(uri, {
         encoding: "base64",
       });
       
       const prompt = `Analyze the food items in this audio. Your response MUST be a single valid JSON object and nothing else. Do not include markdown formatting like \`\`\`json.
+
+🌐 LANGUAGE REQUIREMENT:
+- The transcription field MUST be in English only. Translate to English if needed, but return ONLY English text.
+- All food item names must be in English.
 
 🚨 CRITICAL QUANTITY PRESERVATION RULES 🚨
 1. If the audio does NOT contain any food items or is unclear, respond with: {"error": "No food items detected. Please speak clearly about what you ate."}
@@ -235,12 +298,25 @@ const VoiceCalorieScreen = ({ navigation, route }) => {
 The JSON object must have this structure: 
 { "transcription": "The full text of what you heard", "items": [ { "name": "EXACT_QUANTITY + food item", "calories": <number>, "protein": <number>, "carbs": <number>, "fat": <number>, "fiber": <number> } ], "total": { "calories": <number>, "protein": <number>, "carbs": <number>, "fat": <number>, "fiber": <number> } }`;
 
-      const result = await model.generateContent([
-        prompt,
-        { inlineData: { mimeType: "audio/mp4", data: audioData } },
-      ]);
-      const response = await result.response;
-      let text = response.text();
+      let text = '';
+      for (const name of models) {
+        try {
+          const model = genAI.getGenerativeModel({ model: name });
+          const result = await raceWithTimeout(
+            model.generateContent([
+              prompt,
+              { inlineData: { mimeType: "audio/m4a", data: audioData } },
+            ]),
+            18000,
+            'Analysis timed out'
+          );
+          const response = await result.response;
+          text = response.text();
+          if (text) break;
+        } catch (_e) {
+          // try next model
+        }
+      }
 
       console.log("VoiceCalorieScreen - Raw AI response:", text);
 
@@ -275,7 +351,6 @@ The JSON object must have this structure:
         if (data.transcription) {
           setTranscribedText(data.transcription);
         }
-        setShowListening(false);
         setNutritionData({ ...data.total, items: data.items });
 
         // Create clean food name from extracted items (just quantities and food names)
@@ -316,6 +391,7 @@ The JSON object must have this structure:
         msg.includes("no json object") ||
         msg.includes("empty") ||
         msg.includes("silence") ||
+        msg.includes('timed out') ||
         msg.includes("404") ||
         msg.includes("not found") ||
         msg.includes("models/") ||
@@ -323,7 +399,12 @@ The JSON object must have this structure:
         msg.includes("api version") ||
         msg.includes("all ai models are currently unavailable")
       ) {
-        Alert.alert("Please speak more clearly", "We couldn't recognize the audio. Try moving closer to the mic and speaking a bit louder.");
+        Alert.alert(
+          msg.includes('timed out') ? "Connection timed out" : "Please speak more clearly",
+          msg.includes('timed out')
+            ? "Network is slow right now. Please try again or move to a better connection."
+            : "We couldn't recognize the audio. Try moving closer to the mic and speaking a bit louder."
+        );
       } else if (msg.includes("503") || msg.includes("overloaded")) {
         Alert.alert("AI busy", "Service is temporarily overloaded. Please try again in a few moments.");
       } else if (msg.includes("api key")) {
@@ -331,7 +412,7 @@ The JSON object must have this structure:
       } else {
         Alert.alert("Please speak more clearly", "We couldn't recognize the audio. Try moving closer to the mic and speaking a bit louder.");
       }
-      setShowListening(false);
+      // no listening state toggle
     } finally {
       setIsLoading(false);
       setIsConverting(false); // Hide full-screen loading modal
@@ -396,7 +477,7 @@ The JSON object must have this structure:
                 try {
                   await recordingRef.current.stopAndUnloadAsync();
                   recordingRef.current = null;
-                } catch (error) {
+                } catch (_error) {
                   // ignore
                 }
               }
@@ -629,7 +710,7 @@ The JSON object must have this structure:
         </View>
 
         {/* Action buttons row above bottom */}
-        <View style={[styles.actionRow, styles.actionRowFixed]}>
+        <View style={[styles.actionRow, styles.actionRowFixed, { bottom: insets.bottom >= 20 ? (110 + insets.bottom) : 110 }]}>
           <TouchableOpacity
             style={[styles.startBtn, isRecording && { opacity: 0.6 }]}
             onPress={startRecording}
@@ -650,7 +731,7 @@ The JSON object must have this structure:
 
         {/* Convert button fixed at screen bottom */}
         <TouchableOpacity
-          style={[styles.convertBtn, styles.convertFixed, (!lastRecordingUri || isLoading) && { opacity: 0.6 }]}
+          style={[styles.convertBtn, styles.convertFixed, (!lastRecordingUri || isLoading) && { opacity: 0.6 }, { bottom: insets.bottom >= 20 ? (insets.bottom + 20) : 20 }]}
           onPress={() => lastRecordingUri && handleVoiceToCalorie(lastRecordingUri)}
           disabled={!lastRecordingUri || isLoading}
         >
@@ -659,7 +740,7 @@ The JSON object must have this structure:
       </View>
       {/* Fixed footer for action buttons */}
       {nutritionData && !isLoading && (
-        <View style={styles.footerActionRow}>
+        <View style={[styles.footerActionRow, { bottom: insets.bottom >= 20 ? (insets.bottom + 20) : 20 }]}>
           <TouchableOpacity
             style={styles.confirmBtn}
             onPress={handleConfirmLog}
@@ -865,7 +946,6 @@ const styles = StyleSheet.create({
     borderTopWidth: 1,
     borderColor: "#eee",
     position: "absolute",
-    bottom: 20,
     left: 0,
   },
   confirmBtn: {

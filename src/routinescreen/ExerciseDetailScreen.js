@@ -3,7 +3,7 @@ import { useNavigation, useRoute } from '@react-navigation/native';
 import React, { useEffect, useMemo, useState } from 'react';
 import { Image, ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import Animated, { useAnimatedStyle, useSharedValue, withSpring } from 'react-native-reanimated';
-import { SafeAreaView } from 'react-native-safe-area-context';
+import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import supabase from '../lib/supabase';
   
 const COLORS = {
@@ -64,6 +64,7 @@ const mock = {
 };
 
 export default function ExerciseDetailScreen() {
+  const insets = useSafeAreaInsets(); // Get safe area insets for bottom navigation
   const route = useRoute();
   const navigation = useNavigation();
   const initialWorkout = route.params?.workout || mock;
@@ -150,7 +151,10 @@ export default function ExerciseDetailScreen() {
         <Text style={styles.headerTitle}>Exercise Detail</Text>
         <TouchableOpacity style={styles.headerIcon}><Ionicons name="share-outline" size={22} color={COLORS.darkText} /></TouchableOpacity>
       </View>
-      <ScrollView contentContainerStyle={{ paddingBottom: 32 }} showsVerticalScrollIndicator={false}>
+      <ScrollView 
+        contentContainerStyle={{ paddingBottom: insets.bottom >= 20 ? (32 + insets.bottom) : 32 }} 
+        showsVerticalScrollIndicator={false}
+      >
         {/* Media */}
         <View style={styles.mediaWrap}>
           <Image

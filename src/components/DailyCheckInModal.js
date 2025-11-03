@@ -12,7 +12,7 @@ import {
   TouchableOpacity,
   View
 } from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
+import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 
 export const DailyCheckInModal = ({ 
   visible, 
@@ -20,6 +20,7 @@ export const DailyCheckInModal = ({
   onComplete, 
   userProfile 
 }) => {
+  const insets = useSafeAreaInsets(); // Get safe area insets for bottom navigation
   const [currentQuestionIndex, setCurrentQuestionIndex] = useState(0);
   const [responses, setResponses] = useState({});
 
@@ -235,7 +236,7 @@ export const DailyCheckInModal = ({
       animationType="slide"
       presentationStyle="pageSheet"
     >
-      <SafeAreaView style={styles.container} edges={['top', 'left', 'right']}>
+      <SafeAreaView style={styles.container} edges={['top']}>
         <View style={styles.header}>
           <TouchableOpacity onPress={onClose} style={styles.closeButton}>
             <Ionicons name="close" size={24} color="#666" />
@@ -264,7 +265,7 @@ export const DailyCheckInModal = ({
           </View>
         </ScrollView>
 
-        <View style={styles.footer}>
+        <View style={[styles.footer, { paddingBottom: insets.bottom >= 20 ? (insets.bottom + 20) : 20 }]}>
           {currentQuestionIndex > 0 && (
             <TouchableOpacity
               style={styles.previousButton}

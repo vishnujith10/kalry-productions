@@ -57,7 +57,6 @@ import WelcomeScreen from './src/welcomescreen/WelcomeScreen';
 import ExerciseScreen from './src/workoutscreen/ExerciseScreen';
 import WorkoutHistoryScreen from './src/workoutscreen/WorkoutHistoryScreen';
 import WorkoutSaveScreen from './src/workoutscreen/WorkoutSaveScreen';
-
 if (typeof global.structuredClone !== 'function') {
   global.structuredClone = (obj) => JSON.parse(JSON.stringify(obj));
 }
@@ -102,6 +101,7 @@ export default function App() {
 
   const onLayoutRootView = useCallback(async () => {
     if (fontsLoaded) {
+      // ✅ Only hide splash screen, don't initialize Google Sign-In here
       await SplashScreen.hideAsync();
     }
   }, [fontsLoaded]);
@@ -113,107 +113,108 @@ export default function App() {
   return (
     <SafeAreaProvider>
       <GestureHandlerRootView style={{ flex: 1 }}>
-        <OnboardingProvider>
-          <NavigationContainer>
-          <Stack.Navigator 
-            initialRouteName="AuthLoading" 
-            screenOptions={{ 
-              headerShown: false,
-              animation: 'slide_from_right', // Right-to-left animation
-              animationDuration: 200, // Fast but smooth (Instagram uses ~200ms)
-            }}
-            detachInactiveScreens={false} // Keep screens mounted (like Instagram/Facebook)
-          >
-            <Stack.Screen name="AuthLoading" component={AuthLoadingScreen} />
-            <Stack.Screen name="Welcome" component={WelcomeScreen} />
-            <Stack.Screen name="Profile" component={ProfileScreen} />
-            <Stack.Screen name="ReferralSource" component={ReferralSourceScreen} />
-            <Stack.Screen name="ActivityLevel" component={ActivityLevelScreen} />
-            <Stack.Screen name="Focus" component={FocusScreen} />
-            <Stack.Screen name="GoalMood" component={GoalMoodScreen} />
-            <Stack.Screen name="MealPreferences" component={MealPreferencesScreen} />
-            <Stack.Screen name="WeightGoal" component={WeightGoalScreen} />
-            <Stack.Screen name="TargetSummary" component={TargetSummaryScreen} />
-            <Stack.Screen name="TimePerDay" component={TimePerDayScreen} />
-            <Stack.Screen name="WorkoutPreferences" component={WorkoutPreferencesScreen} />
-            <Stack.Screen name="WorkoutSpace" component={WorkoutSpaceScreen} />
-            <Stack.Screen name="GoalSummary" component={GoalSummaryScreen} />
-            <Stack.Screen name="Login" component={LoginScreen} />
-            <Stack.Screen name="Signup" component={SignupScreen} />
-            <Stack.Screen 
-              name="MainDashboard" 
-              component={MainDashboardScreen}
-              options={{
-                animation: 'slide_from_left', // Left-to-right animation for back navigation
-                gestureDirection: 'horizontal', // Enable horizontal swipe gestures
-              }}
-            />
-            <Stack.Screen 
-              name="Home" 
-              component={HomeScreen}
-              options={{
-                animation: 'slide_from_right', // Right-to-left animation for navigation to Home
-                gestureDirection: 'horizontal', // Enable horizontal swipe gestures
-              }}
-            />
-            <Stack.Screen 
-              name="Journal" 
-              component={JournalScreen}
-              options={{
-                animation: 'slide_from_right', // Right-to-left animation for navigation to Journal
-                gestureDirection: 'horizontal', // Enable horizontal swipe gestures
-              }}
-            />
-            <Stack.Screen name="PhotoCalorieScreen" component={PhotoCalorieScreen} />
-            <Stack.Screen name="ManualLogScreen" component={ManualLogScreen} />
-            <Stack.Screen name="VoiceCalorieScreen" component={VoiceCalorieScreen} />
-            <Stack.Screen name="VoicePostCalorieScreen" component={VoicePostCalorieScreen} />
-            <Stack.Screen name="MinimalSignupTest" component={MinimalSignupTestScreen} />
-            <Stack.Screen name="Tabs" component={MainTabs} />
-            <Stack.Screen 
-              name="Exercise" 
-              component={ExerciseScreen}
-              options={{
-                animation: 'slide_from_right', // Right-to-left animation for navigation to Exercise
-                gestureDirection: 'horizontal', // Enable horizontal swipe gestures
-              }}
-            />
-            <Stack.Screen name="CategoryWorkouts" component={CategoryWorkoutsScreen} options={{ headerShown: false }} />
-            <Stack.Screen name="Goal" component={GoalScreen} />
-            <Stack.Screen name="SleepTrackerScreen" component={SleepTrackerScreen} options={{ headerShown: false }} />
-            <Stack.Screen name="WeightTrackerScreen" component={WeightTrackerScreen} options={{ headerShown: false }} />
-            <Stack.Screen name="AddWeightScreen" component={AddWeightScreen} options={{ headerShown: false }} />
-            <Stack.Screen name="HydrationTrackerScreen" component={HydrationTrackerScreen} options={{ headerShown: false }} />
-            <Stack.Screen name="StepTrackerScreen" component={StepTrackerScreen} options={{ headerShown: false }} />
-            <Stack.Screen 
-              name="SavedMealsScreen" 
-              component={SavedMealsScreen} 
-              options={{ 
-                headerShown: false,
-                animation: 'slide_from_right', // Right-to-left animation for navigation to SavedMeals
-                gestureDirection: 'horizontal', // Enable horizontal swipe gestures
-              }} 
-            />
-            <Stack.Screen name="ExerciseDetail" component={ExerciseDetailScreen} />
-            <Stack.Screen name="Create" component={CreateWorkoutScreen} />
-            <Stack.Screen name="Workouts" component={WorkoutHistoryScreen} />
-            <Stack.Screen name="PostCalorieScreen" component={PostCalorieScreen} />
-            <Stack.Screen name="QuickLogScreen" component={QuickLogScreen} />
-            <Stack.Screen name="StartWorkout" component={StartWorkoutScreen} />
-            <Stack.Screen name="AllExercisesScreen" component={AllExercisesScreen} options={{ headerShown: false }} />
-            <Stack.Screen name="CustomCameraScreen" component={CustomCameraScreen} options={{ headerShown: false }} />
-            <Stack.Screen name="CardioPlayerScreen" component={CardioPlayerScreen} />
-            <Stack.Screen name="WorkoutStart" component={WorkoutStartScreen} />
-            <Stack.Screen name="ProgressScreen" component={ProgressScreen} />
-            <Stack.Screen name="WorkoutSaveScreen" component={WorkoutSaveScreen} />
-            <Stack.Screen name="PersonalInfo" component={PersonalInfoScreen} />
-            <Stack.Screen name="Preferences" component={PreferencesScreen} />
-            <Stack.Screen name="AppSettings" component={AppSettingsScreen} />
-            <Stack.Screen name="MiniProfile" component={MiniProfileScreen} />
-          </Stack.Navigator>
-        </NavigationContainer>
-      </OnboardingProvider>
-    </GestureHandlerRootView>
+        {/* AuthProvider wraps everything to provide authentication context */}
+          <OnboardingProvider>
+            <NavigationContainer onReady={onLayoutRootView}>
+              <Stack.Navigator 
+                initialRouteName="AuthLoading" 
+                screenOptions={{ 
+                  headerShown: false,
+                  animation: 'slide_from_right',
+                  animationDuration: 200,
+                }}
+                detachInactiveScreens={false}
+              >
+                <Stack.Screen name="AuthLoading" component={AuthLoadingScreen} />
+                <Stack.Screen name="Welcome" component={WelcomeScreen} />
+                <Stack.Screen name="Profile" component={ProfileScreen} />
+                <Stack.Screen name="ReferralSource" component={ReferralSourceScreen} />
+                <Stack.Screen name="ActivityLevel" component={ActivityLevelScreen} />
+                <Stack.Screen name="Focus" component={FocusScreen} />
+                <Stack.Screen name="GoalMood" component={GoalMoodScreen} />
+                <Stack.Screen name="MealPreferences" component={MealPreferencesScreen} />
+                <Stack.Screen name="WeightGoal" component={WeightGoalScreen} />
+                <Stack.Screen name="TargetSummary" component={TargetSummaryScreen} />
+                <Stack.Screen name="TimePerDay" component={TimePerDayScreen} />
+                <Stack.Screen name="WorkoutPreferences" component={WorkoutPreferencesScreen} />
+                <Stack.Screen name="WorkoutSpace" component={WorkoutSpaceScreen} />
+                <Stack.Screen name="GoalSummary" component={GoalSummaryScreen} />
+                <Stack.Screen name="Login" component={LoginScreen} />
+                <Stack.Screen name="Signup" component={SignupScreen} />
+                <Stack.Screen 
+                  name="MainDashboard" 
+                  component={MainDashboardScreen}
+                  options={{
+                    animation: 'slide_from_left',
+                    gestureDirection: 'horizontal',
+                  }}
+                />
+                <Stack.Screen 
+                  name="Home" 
+                  component={HomeScreen}
+                  options={{
+                    animation: 'slide_from_right',
+                    gestureDirection: 'horizontal',
+                  }}
+                />
+                <Stack.Screen 
+                  name="Journal" 
+                  component={JournalScreen}
+                  options={{
+                    animation: 'slide_from_right',
+                    gestureDirection: 'horizontal',
+                  }}
+                />
+                <Stack.Screen name="PhotoCalorieScreen" component={PhotoCalorieScreen} />
+                <Stack.Screen name="ManualLogScreen" component={ManualLogScreen} />
+                <Stack.Screen name="VoiceCalorieScreen" component={VoiceCalorieScreen} />
+                <Stack.Screen name="VoicePostCalorieScreen" component={VoicePostCalorieScreen} />
+                <Stack.Screen name="MinimalSignupTest" component={MinimalSignupTestScreen} />
+                <Stack.Screen name="Tabs" component={MainTabs} />
+                <Stack.Screen 
+                  name="Exercise" 
+                  component={ExerciseScreen}
+                  options={{
+                    animation: 'slide_from_right',
+                    gestureDirection: 'horizontal',
+                  }}
+                />
+                <Stack.Screen name="CategoryWorkouts" component={CategoryWorkoutsScreen} options={{ headerShown: false }} />
+                <Stack.Screen name="Goal" component={GoalScreen} />
+                <Stack.Screen name="SleepTrackerScreen" component={SleepTrackerScreen} options={{ headerShown: false }} />
+                <Stack.Screen name="WeightTrackerScreen" component={WeightTrackerScreen} options={{ headerShown: false }} />
+                <Stack.Screen name="AddWeightScreen" component={AddWeightScreen} options={{ headerShown: false }} />
+                <Stack.Screen name="HydrationTrackerScreen" component={HydrationTrackerScreen} options={{ headerShown: false }} />
+                <Stack.Screen name="StepTrackerScreen" component={StepTrackerScreen} options={{ headerShown: false }} />
+                <Stack.Screen 
+                  name="SavedMealsScreen" 
+                  component={SavedMealsScreen} 
+                  options={{ 
+                    headerShown: false,
+                    animation: 'slide_from_right',
+                    gestureDirection: 'horizontal',
+                  }} 
+                />
+                <Stack.Screen name="ExerciseDetail" component={ExerciseDetailScreen} />
+                <Stack.Screen name="Create" component={CreateWorkoutScreen} />
+                <Stack.Screen name="Workouts" component={WorkoutHistoryScreen} />
+                <Stack.Screen name="PostCalorieScreen" component={PostCalorieScreen} />
+                <Stack.Screen name="QuickLogScreen" component={QuickLogScreen} />
+                <Stack.Screen name="StartWorkout" component={StartWorkoutScreen} />
+                <Stack.Screen name="AllExercisesScreen" component={AllExercisesScreen} options={{ headerShown: false }} />
+                <Stack.Screen name="CustomCameraScreen" component={CustomCameraScreen} options={{ headerShown: false }} />
+                <Stack.Screen name="CardioPlayerScreen" component={CardioPlayerScreen} />
+                <Stack.Screen name="WorkoutStart" component={WorkoutStartScreen} />
+                <Stack.Screen name="ProgressScreen" component={ProgressScreen} />
+                <Stack.Screen name="WorkoutSaveScreen" component={WorkoutSaveScreen} />
+                <Stack.Screen name="PersonalInfo" component={PersonalInfoScreen} />
+                <Stack.Screen name="Preferences" component={PreferencesScreen} />
+                <Stack.Screen name="AppSettings" component={AppSettingsScreen} />
+                <Stack.Screen name="MiniProfile" component={MiniProfileScreen} />
+              </Stack.Navigator>
+            </NavigationContainer>
+          </OnboardingProvider>
+      </GestureHandlerRootView>
     </SafeAreaProvider>
   );
 }
