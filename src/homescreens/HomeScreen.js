@@ -20,7 +20,7 @@ import Animated, {
   withSpring,
   withTiming
 } from 'react-native-reanimated';
-import { SafeAreaView } from 'react-native-safe-area-context';
+import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { CompassionateFeedbackEngine } from "../algorithms/CompassionateFeedbackEngine";
 import { DataSyncEngine } from "../algorithms/DataSyncEngine";
 import { OnboardingContext } from "../context/OnboardingContext";
@@ -108,6 +108,7 @@ StreakBadge.displayName = 'StreakBadge';
 
 // Add FooterBar component (same as MainDashboard)
 const FooterBar = ({ navigation, activeTab }) => {
+  const insets = useSafeAreaInsets(); // Get safe area insets for bottom navigation
   const tabs = [
     {
       key: 'Home',
@@ -137,7 +138,7 @@ const FooterBar = ({ navigation, activeTab }) => {
   ];
 
   return (
-    <View style={footerStyles.container}>
+    <View style={[footerStyles.container, { bottom: insets.bottom >= 20 ? (insets.bottom + 16) : 16 }]}>
       <View style={footerStyles.ovalFooter}>
         {tabs.map(tab => (
           <TouchableOpacity
@@ -317,6 +318,7 @@ function getCurrentWeekDates() {
 }
 
 const HomeScreen = ({ navigation }) => {
+  const insets = useSafeAreaInsets(); // For ScrollView padding
   const [weekDates, setWeekDates] = useState(getCurrentWeekDates());
   const [selectedDate, setSelectedDate] = useState(new Date());
   const [user, setUser] = useState({ id: null });
@@ -1080,7 +1082,7 @@ const HomeScreen = ({ navigation }) => {
         </View>
         {/* Recent Meals Section */}
         <View
-          style={{ marginHorizontal: 20, marginBottom: 30, paddingBottom: 80 }}
+          style={{ marginHorizontal: 20, marginBottom: 30, paddingBottom: Math.max(80, (insets.bottom >= 20 ? insets.bottom + 16 : 16) + 60) }}
         >
           <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 14 }}>
             <Text
@@ -1706,7 +1708,6 @@ const footerStyles = StyleSheet.create({
     position: 'absolute',
     left: 16,
     right: 16,
-    bottom: Platform.OS === 'ios' ? 20 : 16,
     backgroundColor: 'transparent',
     alignItems: 'center',
     zIndex: 100,

@@ -3,7 +3,7 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useFocusEffect, useNavigation } from '@react-navigation/native';
 import React, { useContext, useEffect, useState } from 'react';
 import { Alert, BackHandler, Modal, Platform, ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
+import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { KalryAlgorithmManager } from '../algorithms/KalryAlgorithmManager';
 import { DailyCheckInModal } from '../components/DailyCheckInModal';
 import { OnboardingContext } from '../context/OnboardingContext';
@@ -96,6 +96,7 @@ const getTodaysQuote = () => {
 
 // Add FooterBar component before MainDashboardScreen
 const FooterBar = ({ navigation, activeTab }) => {
+  const insets = useSafeAreaInsets(); // Get safe area insets for bottom navigation
   const tabs = [
     {
       key: 'Home',
@@ -125,7 +126,7 @@ const FooterBar = ({ navigation, activeTab }) => {
   ];
 
   return (
-    <View style={footerStyles.container}>
+    <View style={[footerStyles.container, { bottom: insets.bottom >= 20 ? (insets.bottom + 16) : 16 }]}>
       <View style={footerStyles.ovalFooter}>
         {tabs.map(tab => (
           <TouchableOpacity
@@ -166,7 +167,6 @@ const footerStyles = StyleSheet.create({
     position: 'absolute',
     left: 16,
     right: 16,
-    bottom: Platform.OS === 'ios' ? 20 : 16,
     backgroundColor: 'transparent',
     alignItems: 'center',
     zIndex: 100,
@@ -223,6 +223,7 @@ const footerStyles = StyleSheet.create({
 
 const MainDashboardScreen = ({ route }) => {
   const navigation = useNavigation();
+  const insets = useSafeAreaInsets(); // For ScrollView padding
   const { onboardingData, setOnboardingData } = useContext(OnboardingContext);
   const userName = onboardingData?.name || 'Aanya';
   const { stepsToday, distanceKm, calories: stepCalories, isPedometerAvailable, reloadStepsFromDatabase } = useTodaySteps();
@@ -1064,7 +1065,7 @@ const MainDashboardScreen = ({ route }) => {
       <ScrollView
         contentContainerStyle={{
           ...styles.scrollContent,
-          paddingBottom: 110, // ensure content is visible above footer
+          paddingBottom: Math.max(110, (insets.bottom >= 20 ? insets.bottom + 16 : 16) + 80), // ensure content is visible above footer
         }}
         showsVerticalScrollIndicator={false}
       >
